@@ -2,6 +2,8 @@
 
 Stack: **Next.js** (`apps/web`), **NestJS** (`apps/api`), **FastAPI** (`apps/ai`), **PostgreSQL + pgvector**, **Redis**, **Prisma** (`packages/db`).
 
+**Full local setup (Docker, Postgres, Redis, migrations, env files, ports):** see **[docs/GETTING_STARTED.md](docs/GETTING_STARTED.md)**.
+
 ## Monorepo layout
 
 | Path | Role |

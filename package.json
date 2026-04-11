@@ -1,0 +1,30 @@
+{
+  "name": "persona-platform",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "postinstall": "npm run db:generate -w @persona/db",
+    "dev": "npm run dev --workspaces --if-present",
+    "dev:api": "npm run dev -w @persona/api",
+    "dev:web": "npm run dev -w @persona/web",
+    "db:generate": "npm run db:generate -w @persona/db",
+    "db:migrate": "npm run db:migrate -w @persona/db",
+    "db:migrate:deploy": "npm run db:migrate:deploy -w @persona/db",
+    "dev:setup": "powershell -ExecutionPolicy Bypass -File scripts/start-local.ps1",
+    "db:studio": "npm run db:studio -w @persona/db",
+    "db:seed": "npm run db:seed -w @persona/db",
+    "lint": "npm run lint --workspaces --if-present",
+    "format": "prettier --write \"**/*.{ts,tsx,js,mjs,cjs,json,md,yml,yaml}\"",
+    "format:check": "prettier --check \"**/*.{ts,tsx,js,mjs,cjs,json,md,yml,yaml}\"",
+    "build": "npm run build --workspaces --if-present"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "prettier": "^3.5.3"
+  }
+}

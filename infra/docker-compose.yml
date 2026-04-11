@@ -1,0 +1,38 @@
+# Local PostgreSQL (pgvector) + Redis for Phase 1.
+# Ports avoid conflicts with common local installs: Postgres 5433, Redis 6380.
+
+# Optional: set PERSONA_POSTGRES_IMAGE / PERSONA_REDIS_IMAGE (e.g. in repo-root .env) if Docker Hub fails.
+services:
+  postgres:
+    image: ${PERSONA_POSTGRES_IMAGE:-pgvector/pgvector:pg16}
+    container_name: phase1-postgres
+    environment:
+      POSTGRES_USER: persona
+      POSTGRES_PASSWORD: persona_dev
+      POSTGRES_DB: persona
+    ports:
+      - "5433:5432"
+    volumes:
+      - phase1_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U persona -d persona"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: ${PERSONA_REDIS_IMAGE:-redis:7-alpine}
+    container_name: phase1-redis
+    ports:
+      - "6380:6379"
+    volumes:
+      - phase1_redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  phase1_pgdata:
+  phase1_redis:

@@ -1,106 +1,87 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { apiFetch, clearToken, getToken } from "@/lib/auth";
+import { useAuth } from "@/lib/auth-context";
+import { Card, CardDescription, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 
-type Me = {
-  id: string;
-  email: string;
-  displayName: string | null;
-  role: string;
-  ageVerified: boolean;
-  createdAt: string;
-};
+function staffRole(role: string) {
+  return role === "SUPER_ADMIN" || role === "ADMIN" || role === "OPERATOR";
+}
 
-export default function AccountPage() {
-  const router = useRouter();
-  const [me, setMe] = useState<Me | null | false>(null);
-
-  useEffect(() => {
-    if (!getToken()) {
-      router.replace("/login");
-      return;
-    }
-    let cancelled = false;
-    apiFetch<Me>("/v1/auth/me")
-      .then((u) => {
-        if (!cancelled) setMe(u);
-      })
-      .catch(() => {
-        if (!cancelled) setMe(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [router]);
-
-  if (me === null) {
-    return (
-      <div className="mx-auto max-w-lg px-4 py-16 text-sm text-zinc-400">Loading…</div>
-    );
-  }
-
-  if (me === false) {
-    return (
-      <div className="mx-auto max-w-lg px-4 py-16">
-        <p className="text-red-400">Session invalid.</p>
-        <button
-          type="button"
-          className="mt-4 text-violet-400 hover:underline"
-          onClick={() => {
-            clearToken();
-            router.push("/login");
-          }}
-        >
-          Log in again
-        </button>
-      </div>
-    );
-  }
+export default function AccountOverviewPage() {
+  const { user } = useAuth();
+  if (!user) return null;
 
   return (
-    <div className="mx-auto max-w-lg px-4 py-14 sm:px-6">
-      <h1 className="text-2xl font-semibold text-white">Account</h1>
-      <dl className="mt-8 space-y-4 text-sm">
+    <div>
+      <div className="border-b border-zinc-800/80 pb-8">
+        <h1 className="text-2xl font-semibold tracking-tight text-white sm:text-3xl">Overview</h1>
+        <p className="mt-2 text-sm text-zinc-400">
+          Signed in as <span className="text-zinc-200">{user.email}</span>
+        </p>
+        <div className="mt-4 flex flex-wrap gap-2">
+          <Badge variant="muted">{user.role}</Badge>
+          {user.ageVerified ? (
+            <Badge variant="success">Age verified</Badge>
+          ) : (
+            <Badge variant="warning">Age pending</Badge>
+          )}
+        </div>
+      </div>
+
+      <div className="mt-10 grid gap-4 sm:grid-cols-2">
+        <Link href="/account/profile">
+          <Card className="h-full transition hover:border-violet-500/30">
+            <CardTitle>Profile</CardTitle>
+            <CardDescription>Name, avatar, and contact details.</CardDescription>
+            <p className="mt-4 text-sm font-medium text-violet-400">Manage →</p>
+          </Card>
+        </Link>
+        <Link href="/account/security">
+          <Card className="h-full transition hover:border-violet-500/30">
+            <CardTitle>Security</CardTitle>
+            <CardDescription>Password and sign-in hygiene.</CardDescription>
+            <p className="mt-4 text-sm font-medium text-violet-400">Manage →</p>
+          </Card>
+        </Link>
+        <Link href="/account/subscription">
+          <Card className="h-full transition hover:border-violet-500/30">
+            <CardTitle>Subscription</CardTitle>
+            <CardDescription>Plan, renewal, and billing portal (when connected).</CardDescription>
+            <p className="mt-4 text-sm font-medium text-violet-400">View →</p>
+          </Card>
+        </Link>
+        <Link href="/account/usage">
+          <Card className="h-full transition hover:border-violet-500/30">
+            <CardTitle>Usage</CardTitle>
+            <CardDescription>How you use personas and AI features.</CardDescription>
+            <p className="mt-4 text-sm font-medium text-violet-400">View →</p>
+          </Card>
+        </Link>
+      </div>
+
+      <dl className="mt-10 grid gap-4 rounded-2xl border border-zinc-800/90 bg-zinc-900/40 p-6 text-sm sm:grid-cols-2">
         <div>
-          <dt className="text-zinc-500">Name</dt>
-          <dd className="text-white">{me.displayName ?? "—"}</dd>
+          <dt className="text-zinc-500">Member since</dt>
+          <dd className="mt-1 text-white">
+            {user.createdAt ? new Date(user.createdAt).toLocaleDateString() : "—"}
+          </dd>
         </div>
         <div>
-          <dt className="text-zinc-500">Email</dt>
-          <dd className="text-white">{me.email}</dd>
-        </div>
-        <div>
-          <dt className="text-zinc-500">Role</dt>
-          <dd className="text-white">{me.role}</dd>
-        </div>
-        <div>
-          <dt className="text-zinc-500">Age verified</dt>
-          <dd className="text-white">{me.ageVerified ? "Yes" : "Pending (wire provider)"}</dd>
+          <dt className="text-zinc-500">Last login</dt>
+          <dd className="mt-1 text-white">
+            {user.lastLoginAt ? new Date(user.lastLoginAt).toLocaleString() : "—"}
+          </dd>
         </div>
       </dl>
-      <div className="mt-10 space-y-3 rounded-2xl border border-zinc-800 bg-zinc-900/40 p-5">
-        <h2 className="text-sm font-medium text-white">Billing</h2>
-        <p className="text-sm text-zinc-400">
-          Stripe subscriptions, PPV, and à la carte purchases will connect here (Checkout +
-          Customer Portal).
-        </p>
-        <button
-          type="button"
-          disabled
-          className="rounded-lg bg-zinc-800 px-4 py-2 text-sm text-zinc-500"
-        >
-          Manage subscription (soon)
-        </button>
-      </div>
-      {me.role === "ADMIN" ? (
+
+      {staffRole(user.role) ? (
         <Link
-          href="/admin"
-          className="mt-8 inline-block rounded-xl border border-violet-500/40 px-4 py-2 text-sm text-violet-300 hover:bg-violet-500/10"
+          href="/admin/dashboard"
+          className="mt-10 inline-flex rounded-xl border border-violet-500/40 bg-violet-500/10 px-5 py-3 text-sm font-medium text-violet-200 transition hover:bg-violet-500/20"
         >
-          Admin dashboard →
+          Open admin console →
         </Link>
       ) : null}
     </div>

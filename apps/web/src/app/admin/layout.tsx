@@ -1,76 +1,108 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
-import { apiFetch, getToken } from "@/lib/auth";
+import { useRouter } from "next/navigation";
+import { useEffect, useMemo } from "react";
+import { AdminSidebar, buildAdminNav } from "@/components/admin/admin-shell";
+import { useAuth } from "@/lib/auth-context";
+import { can } from "@/lib/permissions";
+import { getToken } from "@/lib/auth";
+
+function staffRole(role: string) {
+  return role === "SUPER_ADMIN" || role === "ADMIN" || role === "OPERATOR";
+}
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
-  const pathname = usePathname();
-  const [allowed, setAllowed] = useState<"check" | "yes" | "no">("check");
+  const { user, loading, refresh } = useAuth();
+
+  const allowed = useMemo(() => {
+    if (!user) return false;
+    return staffRole(user.role) || can(user.permissions, "dashboard.view");
+  }, [user]);
 
   useEffect(() => {
+    if (loading) return;
     if (!getToken()) {
-      router.replace("/login");
-      return;
+      router.replace("/login?next=/admin/dashboard");
     }
-    let cancelled = false;
-    apiFetch<{ role: string }>("/v1/auth/me")
-      .then((u) => {
-        if (cancelled) return;
-        const ok = u.role === "ADMIN" || u.role === "OPERATOR";
-        setAllowed(ok ? "yes" : "no");
-        if (!ok) router.replace("/account");
-      })
-      .catch(() => {
-        if (!cancelled) setAllowed("no");
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [router]);
+  }, [loading, router]);
 
-  if (allowed === "check") {
+  useEffect(() => {
+    if (loading || !user) return;
+    if (!allowed) {
+      router.replace("/account");
+    }
+  }, [loading, user, allowed, router]);
+
+  if (loading) {
     return (
-      <div className="mx-auto max-w-4xl px-4 py-16 text-sm text-zinc-400">Checking access…</div>
+      <div className="mx-auto max-w-4xl px-4 py-16 text-sm text-zinc-400">
+        Checking access…
+      </div>
     );
   }
 
-  if (allowed === "no") {
+  if (!getToken()) {
+    return (
+      <div className="mx-auto max-w-4xl px-4 py-16 text-sm text-zinc-400">
+        Redirecting to login…
+      </div>
+    );
+  }
+
+  if (!user) {
+    return (
+      <div className="mx-auto max-w-lg px-4 py-16 text-sm">
+        <p className="text-zinc-300">
+          Could not load your session. Ensure the API is running and{" "}
+          <code className="rounded bg-zinc-800 px-1">NEXT_PUBLIC_API_URL</code> points to it (e.g.{" "}
+          <code className="rounded bg-zinc-800 px-1">http://localhost:3001</code>).
+        </p>
+        <button
+          type="button"
+          className="mt-4 rounded-lg border border-zinc-600 px-4 py-2 text-zinc-200 hover:bg-zinc-800"
+          onClick={() => void refresh()}
+        >
+          Retry
+        </button>
+        <Link href="/login?next=/admin/dashboard" className="mt-4 ml-4 inline-block text-violet-400 hover:underline">
+          Log in again
+        </Link>
+      </div>
+    );
+  }
+
+  if (!allowed) {
     return null;
   }
 
+  const nav = buildAdminNav(user.permissions, user.role);
+
   return (
-    <div className="mx-auto max-w-6xl px-4 py-10 sm:px-6">
-      <div className="flex flex-col gap-4 border-b border-zinc-800 pb-6 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-xl font-semibold text-white">Admin</h1>
-          <p className="text-sm text-zinc-500">Personas, publishing, and recent signups</p>
+    <div className="min-h-[calc(100vh-3.5rem)] bg-zinc-950">
+      <AdminSidebar groups={nav} />
+
+      <div className="min-w-0 lg:pl-60">
+        <div className="border-b border-zinc-800/80 bg-zinc-950/80 px-4 py-3 sm:px-6">
+          <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3">
+            <p className="truncate text-xs text-zinc-500">
+              {user.email ? <span className="text-zinc-400">{user.email}</span> : null}
+              {user.email ? " · " : null}
+              <span className="font-mono text-zinc-500">{user.role}</span>
+            </p>
+            <div className="flex items-center gap-4 text-sm">
+              <Link href="/" className="text-zinc-500 transition hover:text-white">
+                Site
+              </Link>
+              <Link href="/account" className="text-zinc-500 transition hover:text-white">
+                Account
+              </Link>
+            </div>
+          </div>
         </div>
-        <nav className="flex gap-4 text-sm">
-          <Link
-            href="/admin"
-            className={pathname === "/admin" ? "text-white" : "text-zinc-400 hover:text-white"}
-          >
-            Overview
-          </Link>
-          <Link
-            href="/admin/personas"
-            className={
-              pathname?.startsWith("/admin/personas")
-                ? "text-white"
-                : "text-zinc-400 hover:text-white"
-            }
-          >
-            Personas
-          </Link>
-          <Link href="/account" className="text-zinc-400 hover:text-white">
-            Exit
-          </Link>
-        </nav>
+        <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6">{children}</div>
       </div>
-      <div className="pt-8">{children}</div>
     </div>
   );
 }

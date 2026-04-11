@@ -4,10 +4,19 @@ From repo root:
 
 ```bash
 docker compose -f infra/docker-compose.yml up -d
+docker compose -f infra/docker-compose.yml ps
 ```
 
-- PostgreSQL + pgvector: `localhost:5433`
-- Redis: `localhost:6380`
+- PostgreSQL + pgvector: `127.0.0.1:5433` (mapped from container `5432`)
+- Redis **7.4** (Alpine): `127.0.0.1:6380` (mapped from container `6379`), AOF persistence enabled
+- Both services: `restart: unless-stopped`, healthchecks with `start_period` for slow first boot
+
+**Connection strings** for `apps/api/.env` and `packages/db/.env`:
+
+```env
+DATABASE_URL=postgresql://persona:persona_dev@127.0.0.1:5433/persona
+REDIS_URL=redis://127.0.0.1:6380
+```
 
 Enable pgvector once (if not already):
 

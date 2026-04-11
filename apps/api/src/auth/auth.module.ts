@@ -1,4 +1,5 @@
 import { Module } from "@nestjs/common";
+import { ConfigModule, ConfigService } from "@nestjs/config";
 import { JwtModule } from "@nestjs/jwt";
 import { PassportModule } from "@nestjs/passport";
 import { UsersModule } from "../users/users.module";
@@ -10,9 +11,15 @@ import { JwtStrategy } from "./jwt.strategy";
   imports: [
     UsersModule,
     PassportModule.register({ defaultStrategy: "jwt" }),
-    JwtModule.register({
-      secret: process.env.JWT_SECRET ?? "dev-change-me",
-      signOptions: { expiresIn: "7d" },
+    // Must use registerAsync: static register() reads process.env before ConfigModule loads .env,
+    // so tokens were signed with "dev-change-me" while JwtStrategy verified with JWT_SECRET from .env → 401 on /me.
+    JwtModule.registerAsync({
+      imports: [ConfigModule],
+      useFactory: (config: ConfigService) => ({
+        secret: config.get<string>("JWT_SECRET") ?? "dev-change-me",
+        signOptions: { expiresIn: "7d" },
+      }),
+      inject: [ConfigService],
     }),
   ],
   controllers: [AuthController],

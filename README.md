@@ -25,11 +25,14 @@ Stack: **Next.js** (`apps/web`), **NestJS** (`apps/api`), **FastAPI** (`apps/ai`
 
 ```bash
 docker compose -f infra/docker-compose.yml up -d
+docker compose -f infra/docker-compose.yml ps
 docker exec -it phase1-postgres psql -U persona -d persona -c "CREATE EXTENSION IF NOT EXISTS vector;"
 ```
 
-- Postgres: `localhost:5433` (user/db `persona`, password `persona_dev` per compose).
-- Redis: `localhost:6380`.
+- Postgres: host `127.0.0.1` / `localhost`, port **5433** (user/db `persona`, password `persona_dev` per compose).
+- Redis: host **127.0.0.1** / `localhost`, port **6380**.
+- Containers use `restart: unless-stopped`. Wait until `docker compose ps` shows **healthy** before running Prisma.
+- Copy `apps/api/.env.example` → `apps/api/.env` and `packages/db/.env.example` → `packages/db/.env`; connection strings use **`127.0.0.1`** by default (more reliable than `localhost` on some Windows setups).
 
 ## 2. Database
 
@@ -42,8 +45,9 @@ npx prisma db seed
 
 From repo root after `npm install`, you can also run `npm run db:seed` (and use `npm run db:migrate -w @persona/db` when you adopt Prisma migrations).
 
-Default seed logins:
+Default seed logins (see table below for full list):
 
+- `superadmin@phase1.local` / `SuperAdmin123!Phase1` (**SUPER_ADMIN**)
 - `admin@phase1.local` / `Admin123!Phase1` (**ADMIN**)
 - `operator@phase1.local` / `Operator123!Phase1` (**OPERATOR**)
 - `customer@phase1.local` / `Customer123!Phase1` (**CUSTOMER**)
@@ -133,3 +137,14 @@ Copy the `.env.example` in each app/package you run:
 - `packages/db/.env.example`
 - `infra/.env.example` (optional compose overrides)
 - Root `.env.example` (quick reference only)
+
+### Seed accounts (after `npm run db:seed`)
+
+| Account | Password | Role |
+|---------|----------|------|
+| `superadmin@phase1.local` | `SuperAdmin123!Phase1` | SUPER_ADMIN |
+| `admin@phase1.local` | `Admin123!Phase1` | ADMIN |
+| `operator@phase1.local` | `Operator123!Phase1` | OPERATOR |
+| `customer@phase1.local` | `Customer123!Phase1` | CUSTOMER (Free plan for AI quota tests) |
+
+Staff logins open **Admin** at `http://localhost:3002/admin/dashboard` after signing in.

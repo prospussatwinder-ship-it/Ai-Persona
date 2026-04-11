@@ -1,4 +1,12 @@
-import { IsBoolean, IsOptional, IsString, MaxLength, MinLength } from "class-validator";
+import {
+  IsBoolean,
+  IsEnum,
+  IsOptional,
+  IsString,
+  MaxLength,
+  MinLength,
+} from "class-validator";
+import { PersonaVisibility } from "@prisma/client";
 
 export class CreatePersonaDto {
   @IsString()
@@ -16,6 +24,14 @@ export class CreatePersonaDto {
   isPublished?: boolean;
 
   @IsOptional()
+  @IsBoolean()
+  isActive?: boolean;
+
+  @IsOptional()
+  @IsEnum(PersonaVisibility)
+  visibility?: PersonaVisibility;
+
+  @IsOptional()
   @IsString()
   tagline?: string;
 
@@ -26,4 +42,9 @@ export class CreatePersonaDto {
   @IsOptional()
   @IsString()
   systemPrompt?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(2048)
+  avatarUrl?: string;
 }

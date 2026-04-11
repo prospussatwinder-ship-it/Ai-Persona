@@ -3,11 +3,25 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { apiFetch, setToken } from "@/lib/auth";
+import { ApiError } from "@/lib/api-error";
+import { apiFetch, clearToken, setToken } from "@/lib/auth";
+import { useAuth } from "@/lib/auth-context";
+import { getApiBase } from "@/lib/config";
+import {
+  AuthFieldLabel,
+  AuthInput,
+  AuthLayout,
+  AuthPrimaryButton,
+} from "@/components/ui/auth-card";
+
+function isStaffRole(role: string) {
+  return role === "SUPER_ADMIN" || role === "ADMIN" || role === "OPERATOR";
+}
 
 export function LoginForm() {
   const router = useRouter();
   const search = useSearchParams();
+  const { refresh } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -18,35 +32,72 @@ export function LoginForm() {
     setError(null);
     setLoading(true);
     try {
-      const res = await apiFetch<{ token: string }>("/v1/auth/login", {
+      const res = await apiFetch<{
+        token?: string;
+        accessToken?: string;
+        user?: { role: string };
+      }>("/v1/auth/login", {
         method: "POST",
         json: { email, password },
+        authToken: null,
       });
-      setToken(res.token);
+      const token = res.token ?? res.accessToken;
+      if (!token) {
+        setError("Login response missing token — check API /v1/auth/login.");
+        return;
+      }
+      setToken(token);
+      let sessionOk = await refresh();
+      if (!sessionOk) {
+        await new Promise((r) => setTimeout(r, 80));
+        sessionOk = await refresh();
+      }
+      if (!sessionOk) {
+        clearToken();
+        setError(
+          "Login succeeded but verifying the session failed. Check: (1) API running on port 3001, (2) apps/web/.env.local has NEXT_PUBLIC_API_URL=http://127.0.0.1:3001, (3) apps/api/.env DATABASE_URL points at Docker Postgres (127.0.0.1:5433). Then restart dev:api and dev:web."
+        );
+        return;
+      }
       const next = search.get("next");
-      router.push(next && next.startsWith("/") ? next : "/personas");
+      if (next && next.startsWith("/")) {
+        router.replace(next);
+      } else if (res.user && isStaffRole(res.user.role)) {
+        router.replace("/admin/dashboard");
+      } else {
+        router.replace("/personas");
+      }
       router.refresh();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Login failed");
+      if (err instanceof ApiError && err.status === 0) {
+        setError(
+          `${err.message} Using API base: ${getApiBase()} — set NEXT_PUBLIC_API_URL in apps/web/.env.local to your Nest URL (default http://localhost:3001), then restart next dev.`
+        );
+      } else {
+        setError(err instanceof Error ? err.message : "Login failed");
+      }
     } finally {
       setLoading(false);
     }
   }
 
   return (
-    <div className="mx-auto max-w-md px-4 py-16 sm:px-6">
-      <h1 className="text-2xl font-semibold text-white">Log in</h1>
+    <AuthLayout>
+      <h1 className="text-2xl font-semibold tracking-tight text-white">Welcome back</h1>
       <p className="mt-2 text-sm text-zinc-400">
-        No account?{" "}
-        <Link href="/register" className="text-violet-400 hover:underline">
-          Sign up
+        New here?{" "}
+        <Link href="/register" className="font-medium text-violet-400 hover:text-violet-300 hover:underline">
+          Create an account
+        </Link>
+        {" · "}
+        <Link href="/forgot-password" className="text-zinc-500 hover:text-zinc-300 hover:underline">
+          Forgot password
         </Link>
       </p>
-      <form onSubmit={onSubmit} className="mt-8 space-y-4">
+      <form onSubmit={onSubmit} className="mt-8 space-y-5">
         <div>
-          <label className="block text-xs font-medium text-zinc-400">Email</label>
-          <input
-            className="mt-1 w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white outline-none focus:border-violet-500"
+          <AuthFieldLabel>Email</AuthFieldLabel>
+          <AuthInput
             type="email"
             autoComplete="email"
             value={email}
@@ -55,9 +106,8 @@ export function LoginForm() {
           />
         </div>
         <div>
-          <label className="block text-xs font-medium text-zinc-400">Password</label>
-          <input
-            className="mt-1 w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white outline-none focus:border-violet-500"
+          <AuthFieldLabel>Password</AuthFieldLabel>
+          <AuthInput
             type="password"
             autoComplete="current-password"
             value={password}
@@ -66,14 +116,10 @@ export function LoginForm() {
           />
         </div>
         {error ? <p className="text-sm text-red-400">{error}</p> : null}
-        <button
-          type="submit"
-          disabled={loading}
-          className="w-full rounded-lg bg-violet-600 py-2.5 text-sm font-medium text-white transition hover:bg-violet-500 disabled:opacity-60"
-        >
+        <AuthPrimaryButton type="submit" disabled={loading}>
           {loading ? "Signing in…" : "Sign in"}
-        </button>
+        </AuthPrimaryButton>
       </form>
-    </div>
+    </AuthLayout>
   );
 }

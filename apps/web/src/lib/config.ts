@@ -1,5 +1,7 @@
+/** Base URL for Nest API (no `/v1` suffix). Trailing slashes stripped. */
 export function getApiBase(): string {
-  return process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001";
+  const raw = (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001").trim();
+  return raw.replace(/\/+$/, "");
 }
 
 export function getWsBase(): string {

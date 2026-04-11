@@ -11,9 +11,21 @@ export class UsersService {
   }
 
   updateProfile(userId: string, dto: UpdateProfileDto) {
-    if (dto.displayName === undefined) {
+    const hasAny =
+      dto.displayName !== undefined ||
+      dto.firstName !== undefined ||
+      dto.lastName !== undefined ||
+      dto.phone !== undefined ||
+      dto.avatarUrl !== undefined;
+    if (!hasAny) {
       return this.users.findProfileById(userId);
     }
-    return this.users.updateProfile(userId, { displayName: dto.displayName });
+    return this.users.updateProfile(userId, {
+      displayName: dto.displayName,
+      firstName: dto.firstName,
+      lastName: dto.lastName,
+      phone: dto.phone,
+      avatarUrl: dto.avatarUrl,
+    });
   }
 }

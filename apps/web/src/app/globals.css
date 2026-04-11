@@ -1,5 +1,25 @@
 @import "tailwindcss";
 
+:root {
+  --pp-bg: #09090b;
+  --pp-surface: rgba(24, 24, 27, 0.55);
+  --pp-border: rgba(63, 63, 70, 0.85);
+  --pp-accent: #7c3aed;
+  --pp-accent-muted: rgba(124, 58, 237, 0.15);
+  --pp-radius-lg: 1rem;
+  --pp-radius-xl: 1.25rem;
+  --pp-shadow-glow: 0 0 80px -20px rgba(124, 58, 237, 0.35);
+}
+
 body {
   font-feature-settings: "rlig" 1, "calt" 1;
+}
+
+/* Subtle page background mesh for marketing + account shells */
+.pp-mesh {
+  background-color: var(--pp-bg);
+  background-image:
+    radial-gradient(ellipse 100% 80% at 50% -30%, rgba(124, 58, 237, 0.18), transparent 55%),
+    radial-gradient(ellipse 60% 50% at 100% 50%, rgba(59, 130, 246, 0.06), transparent),
+    radial-gradient(ellipse 50% 40% at 0% 80%, rgba(244, 63, 94, 0.05), transparent);
 }

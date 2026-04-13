@@ -8,15 +8,48 @@ datasource db {
 }
 
 enum UserRole {
+  SUPER_ADMIN
   ADMIN
   OPERATOR
   CUSTOMER
+}
+
+enum UserAccountStatus {
+  active
+  inactive
+  suspended
+}
+
+enum BillingCycle {
+  MONTHLY
+  YEARLY
+  LIFETIME
+  ONCE
+}
+
+enum PlanStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum AccountSubscriptionStatus {
+  active
+  inactive
+  expired
+  cancelled
+  pending
+  trial
 }
 
 enum MessageRole {
   user
   assistant
   system
+}
+
+enum PersonaVisibility {
+  PUBLIC
+  PRIVATE
 }
 
 enum MemorySource {
@@ -53,10 +86,25 @@ model User {
   passwordHash     String
   role             UserRole @default(CUSTOMER)
   displayName      String?
+  firstName        String?
+  lastName         String?
+  phone            String?
+  avatarUrl        String?
+  status           UserAccountStatus @default(active)
+  emailVerifiedAt  DateTime?
+  lastLoginAt      DateTime?
+  deletedAt        DateTime?
+  createdById      String?
+  updatedById      String?
   stripeCustomerId String?  @unique
   ageVerified      Boolean  @default(false)
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
+
+  createdBy        User?    @relation("UserCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  updatedBy        User?    @relation("UserUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  createdUsers     User[]   @relation("UserCreatedBy")
+  updatedUsers     User[]   @relation("UserUpdatedBy")
 
   personasAuthored Persona[]      @relation("PersonaAuthor")
   conversations    Conversation[]
@@ -66,6 +114,137 @@ model User {
   entitlements     Entitlement[]
   analyticsEvents  AnalyticsEvent[]
   auditLogs        AuditLog[]     @relation("AuditActor")
+  passwordResetTokens PasswordResetToken[]
+  userPlanSubscriptions UserPlanSubscription[]
+  aiUsageLogs      AiUsageLog[]
+  billingTransactions BillingTransaction[]
+}
+
+model PasswordResetToken {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+model Role {
+  id          String   @id @default(cuid())
+  slug        String   @unique
+  name        String
+  description String?
+  isSystem    Boolean  @default(false)
+  status      String   @default("active")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  permissions RolePermission[]
+}
+
+model Permission {
+  id          String   @id @default(cuid())
+  slug        String   @unique
+  module      String
+  name        String
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  roles RolePermission[]
+}
+
+model RolePermission {
+  roleId       String
+  permissionId String
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+}
+
+model SubscriptionPlan {
+  id               String      @id @default(cuid())
+  name             String
+  slug             String      @unique
+  description      String?
+  price            Decimal     @default(0) @db.Decimal(12, 2)
+  currency         String      @default("usd")
+  billingCycle     BillingCycle
+  trialDays        Int         @default(0)
+  aiRequestLimit   Int         @default(0)
+  maxUsers         Int?
+  maxProjects      Int?
+  maxFiles         Int?
+  featureConfig    Json?
+  status           PlanStatus  @default(ACTIVE)
+  sortOrder        Int         @default(0)
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+
+  userSubscriptions UserPlanSubscription[]
+}
+
+model UserPlanSubscription {
+  id                  String                   @id @default(cuid())
+  userId              String
+  user                User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  planId              String
+  plan                SubscriptionPlan         @relation(fields: [planId], references: [id], onDelete: Restrict)
+  status              AccountSubscriptionStatus
+  startDate           DateTime?
+  endDate             DateTime?
+  renewalDate         DateTime?
+  cancelAtPeriodEnd   Boolean                  @default(false)
+  trialStartDate      DateTime?
+  trialEndDate        DateTime?
+  metadata            Json?
+  createdAt           DateTime                 @default(now())
+  updatedAt           DateTime                 @updatedAt
+
+  aiUsageLogs AiUsageLog[]
+
+  @@index([userId])
+  @@index([planId])
+  @@index([status])
+  @@map("user_subscriptions")
+}
+
+model AiUsageLog {
+  id               String               @id @default(cuid())
+  userId           String
+  user             User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  subscriptionId   String?
+  subscription     UserPlanSubscription? @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
+  featureName      String
+  requestType      String
+  creditsUsed      Int                  @default(1)
+  promptTokens     Int?
+  completionTokens Int?
+  totalTokens      Int?
+  status           String               @default("ok")
+  createdAt        DateTime             @default(now())
+
+  @@index([userId, createdAt])
+  @@index([subscriptionId])
+}
+
+model BillingTransaction {
+  id          String   @id @default(cuid())
+  userId      String?
+  user        User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  provider    String   @default("stripe")
+  externalId  String?
+  amountCents Int      @default(0)
+  currency    String   @default("usd")
+  status      String   @default("pending")
+  metadata    Json?
+  createdAt   DateTime @default(now())
+
+  @@index([userId])
+  @@index([externalId])
 }
 
 model Persona {
@@ -73,6 +252,8 @@ model Persona {
   slug        String   @unique
   name        String
   isPublished Boolean  @default(false)
+  isActive    Boolean  @default(true)
+  visibility  PersonaVisibility @default(PUBLIC)
   createdById String?
   createdBy   User?    @relation("PersonaAuthor", fields: [createdById], references: [id], onDelete: SetNull)
   createdAt   DateTime @default(now())
@@ -213,15 +394,22 @@ model AnalyticsEvent {
 }
 
 model AuditLog {
-  id         String   @id @default(cuid())
-  actorId    String?
-  actor      User?    @relation("AuditActor", fields: [actorId], references: [id], onDelete: SetNull)
-  action     String
-  entityType String
-  entityId   String?
-  metadata   Json?
-  ip         String?
-  createdAt  DateTime @default(now())
+  id          String   @id @default(cuid())
+  actorId     String?
+  actor       User?    @relation("AuditActor", fields: [actorId], references: [id], onDelete: SetNull)
+  action      String
+  entityType  String
+  entityId    String?
+  metadata    Json?
+  ip          String?
+  module      String?
+  description String?
+  oldValues   Json?
+  newValues   Json?
+  userAgent   String?
+  createdAt   DateTime @default(now())
 
   @@index([entityType, entityId])
+  @@index([module, createdAt])
+  @@index([createdAt])
 }

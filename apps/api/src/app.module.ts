@@ -21,6 +21,8 @@ import { ComplianceModule } from "./compliance/compliance.module";
 import { HealthController } from "./health/health.controller";
 import { RedisModule } from "./redis/redis.module";
 import { AdminModule } from "./admin/admin.module";
+import { RbacModule } from "./rbac/rbac.module";
+import { AiUsageModule } from "./ai-usage/ai-usage.module";
 
 @Module({
   imports: [
@@ -28,6 +30,8 @@ import { AdminModule } from "./admin/admin.module";
     PrismaModule,
     RepositoriesModule,
     RedisModule,
+    RbacModule,
+    AiUsageModule,
     AiClientModule,
     MemoryModule,
     AuthModule,

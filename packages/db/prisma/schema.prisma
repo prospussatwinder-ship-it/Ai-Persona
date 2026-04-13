@@ -59,6 +59,24 @@ enum MemorySource {
   import
 }
 
+enum PersonaAccessType {
+  purchased
+  assigned
+  subscription
+  admin_granted
+}
+
+enum UserPersonaAccessStatus {
+  active
+  inactive
+  revoked
+}
+
+enum UserPersonaTrainingStatus {
+  active
+  archived
+}
+
 enum SubscriptionStatus {
   active
   canceled
@@ -118,6 +136,8 @@ model User {
   userPlanSubscriptions UserPlanSubscription[]
   aiUsageLogs      AiUsageLog[]
   billingTransactions BillingTransaction[]
+  personaAccesses   UserPersonaAccess[]
+  personaTrainings  UserPersonaTrainingProfile[]
 }
 
 model PasswordResetToken {
@@ -264,6 +284,8 @@ model Persona {
   memoryEntries   MemoryEntry[]
   scheduledPosts  ScheduledPost[]
   analyticsEvents AnalyticsEvent[]
+  accessGrants    UserPersonaAccess[]
+  trainingProfiles UserPersonaTrainingProfile[]
 }
 
 model PersonaProfile {
@@ -274,6 +296,12 @@ model PersonaProfile {
   description   String?  @db.Text
   avatarUrl     String?
   systemPrompt  String?  @db.Text
+  scopeName     String?
+  scopeDescription String? @db.Text
+  allowedTopics Json?
+  blockedTopics Json?
+  behaviorRules String? @db.Text
+  feedData      Json?
   agentConfig   Json?
   voiceConfig   Json?
   createdAt     DateTime @default(now())
@@ -315,12 +343,54 @@ model MemoryEntry {
   persona        Persona      @relation(fields: [personaId], references: [id], onDelete: Cascade)
   conversationId String?
   source         MemorySource
+  memoryKey      String?
+  memoryType     String?
+  confidenceScore Float?
   content        String       @db.Text
   metadata       Json?
   embedding      Unsupported("vector(1536)")?
   createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
 
   @@index([userId, personaId])
+  @@index([userId, personaId, memoryKey])
+}
+
+model UserPersonaAccess {
+  id         String                 @id @default(cuid())
+  userId     String
+  user       User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  personaId  String
+  persona    Persona                @relation(fields: [personaId], references: [id], onDelete: Cascade)
+  accessType PersonaAccessType
+  status     UserPersonaAccessStatus @default(active)
+  startDate  DateTime?
+  endDate    DateTime?
+  metadata   Json?
+  createdAt  DateTime               @default(now())
+  updatedAt  DateTime               @updatedAt
+
+  @@unique([userId, personaId, accessType])
+  @@index([userId, status])
+  @@index([personaId, status])
+}
+
+model UserPersonaTrainingProfile {
+  id                String                   @id @default(cuid())
+  userId            String
+  user              User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  personaId         String
+  persona           Persona                  @relation(fields: [personaId], references: [id], onDelete: Cascade)
+  title             String?
+  trainingNotes     String?                  @db.Text
+  structuredProfile Json?
+  status            UserPersonaTrainingStatus @default(active)
+  createdAt         DateTime                 @default(now())
+  updatedAt         DateTime                 @updatedAt
+
+  @@unique([userId, personaId])
+  @@index([userId, status])
+  @@index([personaId, status])
 }
 
 model Subscription {

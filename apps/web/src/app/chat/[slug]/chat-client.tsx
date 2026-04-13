@@ -13,6 +13,12 @@ type Msg = {
   createdAt: string;
 };
 
+type PersonaTraining = {
+  title: string | null;
+  trainingNotes: string | null;
+  structuredProfile: Record<string, unknown> | null;
+};
+
 export function ChatClient({ personaSlug, personaName }: { personaSlug: string; personaName: string }) {
   const router = useRouter();
   const [conversationId, setConversationId] = useState<string | null>(null);
@@ -20,6 +26,11 @@ export function ChatClient({ personaSlug, personaName }: { personaSlug: string; 
   const [input, setInput] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [showTraining, setShowTraining] = useState(false);
+  const [trainingBusy, setTrainingBusy] = useState(false);
+  const [trainingTitle, setTrainingTitle] = useState("");
+  const [trainingNotes, setTrainingNotes] = useState("");
+  const [trainingJson, setTrainingJson] = useState("{}");
   const bottomRef = useRef<HTMLDivElement | null>(null);
 
   const scrollToBottom = useCallback(() => {
@@ -63,6 +74,20 @@ export function ChatClient({ personaSlug, personaName }: { personaSlug: string; 
           setConversationId(created.id);
           setMessages([]);
         }
+        try {
+          const trainingRes = await apiFetch<{
+            training: PersonaTraining | null;
+          }>(`/v1/personas/${personaSlug}/training`);
+          if (!cancelled) {
+            setTrainingTitle(trainingRes.training?.title ?? "");
+            setTrainingNotes(trainingRes.training?.trainingNotes ?? "");
+            setTrainingJson(
+              JSON.stringify(trainingRes.training?.structuredProfile ?? {}, null, 2)
+            );
+          }
+        } catch {
+          // Do not block chat boot if training endpoint has transient errors.
+        }
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : "Could not open chat");
       } finally {
@@ -92,6 +117,29 @@ export function ChatClient({ personaSlug, personaName }: { personaSlug: string; 
       setMessages((prev) => [...prev, res.userMessage, res.assistantMessage]);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Send failed");
+    }
+  }
+
+  async function saveTraining() {
+    setTrainingBusy(true);
+    setError(null);
+    try {
+      const structured = trainingJson.trim()
+        ? (JSON.parse(trainingJson) as Record<string, unknown>)
+        : {};
+      await apiFetch(`/v1/personas/${personaSlug}/training`, {
+        method: "PUT",
+        json: {
+          title: trainingTitle.trim() || undefined,
+          trainingNotes: trainingNotes.trim() || undefined,
+          structuredProfile: structured,
+        },
+      });
+      setShowTraining(false);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Training update failed");
+    } finally {
+      setTrainingBusy(false);
     }
   }
 
@@ -183,7 +231,57 @@ export function ChatClient({ personaSlug, personaName }: { personaSlug: string; 
         >
           Send
         </button>
+        <button
+          type="button"
+          onClick={() => setShowTraining((v) => !v)}
+          className="rounded-xl border border-zinc-700 px-3 py-2 text-xs text-zinc-300 hover:bg-zinc-800"
+        >
+          {showTraining ? "Hide training" : "Persona training"}
+        </button>
       </div>
+      {showTraining ? (
+        <div className="mt-3 rounded-xl border border-zinc-800 bg-zinc-900/40 p-3">
+          <p className="text-xs text-zinc-500">
+            Personalize this persona for your account only. Stored per user + persona.
+          </p>
+          <label className="mt-2 block text-xs text-zinc-400">
+            Profile title
+            <input
+              value={trainingTitle}
+              onChange={(e) => setTrainingTitle(e.target.value)}
+              className="mt-1 w-full rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1.5 text-sm text-white"
+            />
+          </label>
+          <label className="mt-2 block text-xs text-zinc-400">
+            Notes
+            <textarea
+              value={trainingNotes}
+              onChange={(e) => setTrainingNotes(e.target.value)}
+              rows={3}
+              className="mt-1 w-full rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1.5 text-sm text-white"
+            />
+          </label>
+          <label className="mt-2 block text-xs text-zinc-400">
+            Structured JSON
+            <textarea
+              value={trainingJson}
+              onChange={(e) => setTrainingJson(e.target.value)}
+              rows={5}
+              className="mt-1 w-full rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1.5 font-mono text-xs text-white"
+            />
+          </label>
+          <div className="mt-2 flex justify-end">
+            <button
+              type="button"
+              disabled={trainingBusy}
+              onClick={() => void saveTraining()}
+              className="rounded-md bg-violet-600 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
+            >
+              {trainingBusy ? "Saving..." : "Save training"}
+            </button>
+          </div>
+        </div>
+      ) : null}
       <p className="mt-2 text-center text-[10px] text-zinc-600">
         API: {getApiBase()} · Phase 1 uses request/response; WebSocket streaming comes later
       </p>

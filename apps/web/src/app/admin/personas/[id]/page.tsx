@@ -23,6 +23,12 @@ type PersonaDetail = {
     tagline: string | null;
     description: string | null;
     systemPrompt: string | null;
+    scopeName: string | null;
+    scopeDescription: string | null;
+    allowedTopics: string[] | null;
+    blockedTopics: string[] | null;
+    behaviorRules: string | null;
+    feedData: Record<string, unknown> | null;
     avatarUrl: string | null;
   } | null;
   _count: { conversations: number };
@@ -172,6 +178,39 @@ export default function PersonaDetailPage() {
           <p className="font-mono text-xs text-zinc-500">{persona.slug}</p>
           {persona.profile?.description ? (
             <p className="text-sm text-zinc-300 whitespace-pre-wrap">{persona.profile.description}</p>
+          ) : null}
+          {persona.profile?.scopeName ? (
+            <div className="rounded-lg border border-zinc-800 bg-zinc-950/70 p-3">
+              <h4 className="text-xs font-medium uppercase text-zinc-500">Scope</h4>
+              <p className="mt-1 text-sm text-zinc-200">{persona.profile.scopeName}</p>
+              {persona.profile.scopeDescription ? (
+                <p className="mt-1 text-xs text-zinc-400 whitespace-pre-wrap">
+                  {persona.profile.scopeDescription}
+                </p>
+              ) : null}
+              <p className="mt-2 text-xs text-zinc-500">
+                Allowed: {(persona.profile.allowedTopics ?? []).join(", ") || "—"}
+              </p>
+              <p className="mt-1 text-xs text-zinc-500">
+                Blocked: {(persona.profile.blockedTopics ?? []).join(", ") || "—"}
+              </p>
+            </div>
+          ) : null}
+          {persona.profile?.behaviorRules ? (
+            <div>
+              <h4 className="text-xs font-medium uppercase text-zinc-500">Behavior rules</h4>
+              <p className="mt-1 text-xs text-zinc-300 whitespace-pre-wrap">
+                {persona.profile.behaviorRules}
+              </p>
+            </div>
+          ) : null}
+          {persona.profile?.feedData ? (
+            <div>
+              <h4 className="text-xs font-medium uppercase text-zinc-500">Feed data</h4>
+              <pre className="mt-1 max-h-64 overflow-auto rounded-lg border border-zinc-800 bg-zinc-950 p-3 font-mono text-xs text-zinc-300">
+                {JSON.stringify(persona.profile.feedData, null, 2)}
+              </pre>
+            </div>
           ) : null}
           {persona.profile?.systemPrompt ? (
             <div>

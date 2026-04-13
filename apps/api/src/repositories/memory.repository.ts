@@ -1,5 +1,6 @@
 import { randomUUID } from "crypto";
 import { Injectable } from "@nestjs/common";
+import type { MemorySource, Prisma } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
 
 export const MEMORY_EMBEDDING_DIM = 1536;
@@ -41,7 +42,7 @@ export class MemoryRepository {
     source: string,
     content: string,
     embedding: number[],
-    metadata?: Record<string, unknown>
+    metadata?: Prisma.InputJsonValue
   ) {
     if (embedding.length !== MEMORY_EMBEDDING_DIM) {
       throw new Error(`Embedding dimension must be ${MEMORY_EMBEDDING_DIM}`);
@@ -62,5 +63,73 @@ export class MemoryRepository {
       vec
     );
     return { id };
+  }
+
+  listStructuredForUserPersona(userId: string, personaId: string, limit = 32) {
+    return this.prisma.memoryEntry.findMany({
+      where: { userId, personaId, memoryKey: { not: null } },
+      orderBy: [{ updatedAt: "desc" }, { createdAt: "desc" }],
+      take: limit,
+      select: {
+        id: true,
+        memoryKey: true,
+        memoryType: true,
+        content: true,
+        confidenceScore: true,
+        source: true,
+        metadata: true,
+        updatedAt: true,
+      },
+    });
+  }
+
+  async upsertStructured(input: {
+    userId: string;
+    personaId: string;
+    conversationId?: string | null;
+    memoryKey: string;
+    memoryType: string;
+    content: string;
+    source: MemorySource;
+    confidenceScore?: number;
+    metadata?: Prisma.InputJsonValue;
+  }) {
+    const existing = await this.prisma.memoryEntry.findFirst({
+      where: {
+        userId: input.userId,
+        personaId: input.personaId,
+        memoryKey: input.memoryKey,
+      },
+      orderBy: { updatedAt: "desc" },
+      select: { id: true },
+    });
+
+    if (existing) {
+      return this.prisma.memoryEntry.update({
+        where: { id: existing.id },
+        data: {
+          memoryType: input.memoryType,
+          content: input.content,
+          source: input.source,
+          confidenceScore: input.confidenceScore,
+          conversationId: input.conversationId ?? null,
+          metadata: input.metadata,
+        },
+      });
+    }
+
+    return this.prisma.memoryEntry.create({
+      data: {
+        userId: input.userId,
+        personaId: input.personaId,
+        conversationId: input.conversationId ?? null,
+        source: input.source,
+        memoryKey: input.memoryKey,
+        memoryType: input.memoryType,
+        content: input.content,
+        confidenceScore: input.confidenceScore,
+        metadata: input.metadata,
+      },
+    });
   }
 }

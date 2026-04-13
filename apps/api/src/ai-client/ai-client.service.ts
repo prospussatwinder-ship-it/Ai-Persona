@@ -22,12 +22,17 @@ export class AiClientService {
 
   async embed(text: string): Promise<number[]> {
     const base = this.baseUrl();
-    const res = await axios.post<{ embedding: number[] }>(
-      `${base}/memory/store`,
-      { text },
-      { headers: this.headers(), timeout: 30_000 }
-    );
-    return res.data.embedding;
+    try {
+      const res = await axios.post<{ embedding: number[] }>(
+        `${base}/memory/store`,
+        { text },
+        { headers: this.headers(), timeout: 30_000 }
+      );
+      return res.data.embedding;
+    } catch (e) {
+      this.log.warn(`AI embed unavailable, using deterministic fallback (${String(e)})`);
+      return this.fallbackEmbedding(text);
+    }
   }
 
   async complete(input: CompleteChatInput): Promise<string> {
@@ -43,5 +48,24 @@ export class AiClientService {
       this.log.warn(`AI service unavailable, using mock fallback (${String(e)})`);
       return `[mock-ai] Echo: ${input.messages.at(-1)?.content ?? ""}`;
     }
+  }
+
+  private fallbackEmbedding(text: string, dim = 1536): number[] {
+    let seed = 2166136261;
+    for (let i = 0; i < text.length; i++) {
+      seed ^= text.charCodeAt(i);
+      seed = Math.imul(seed, 16777619);
+    }
+    const vec: number[] = [];
+    let x = seed >>> 0;
+    for (let i = 0; i < dim; i++) {
+      x ^= x << 13;
+      x ^= x >>> 17;
+      x ^= x << 5;
+      const v = ((x >>> 0) / 0xffffffff) * 2 - 1;
+      vec.push(v);
+    }
+    const norm = Math.sqrt(vec.reduce((sum, v) => sum + v * v, 0)) || 1;
+    return vec.map((v) => v / norm);
   }
 }

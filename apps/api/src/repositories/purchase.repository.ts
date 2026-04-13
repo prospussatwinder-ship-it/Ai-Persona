@@ -11,4 +11,15 @@ export class PurchaseRepository {
       orderBy: { createdAt: "desc" },
     });
   }
+
+  hasSucceededForProductKeys(userId: string, productKeys: string[]) {
+    return this.prisma.purchase.findFirst({
+      where: {
+        userId,
+        status: "succeeded",
+        productKey: { in: productKeys },
+      },
+      select: { id: true },
+    });
+  }
 }

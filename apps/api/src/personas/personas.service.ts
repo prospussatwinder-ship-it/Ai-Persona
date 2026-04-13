@@ -3,6 +3,7 @@ import {
   Injectable,
   NotFoundException,
 } from "@nestjs/common";
+import { Prisma } from "@prisma/client";
 import { PersonaRepository } from "../repositories/persona.repository";
 import { AuditService } from "../audit/audit.service";
 import type { CreatePersonaDto } from "./dto/create-persona.dto";
@@ -45,6 +46,12 @@ export class PersonasService {
           tagline: dto.tagline,
           description: dto.description,
           systemPrompt: dto.systemPrompt,
+          scopeName: dto.scopeName,
+          scopeDescription: dto.scopeDescription,
+          allowedTopics: dto.allowedTopics,
+          blockedTopics: dto.blockedTopics,
+          behaviorRules: dto.behaviorRules,
+          feedData: dto.feedData as Prisma.InputJsonValue | undefined,
           avatarUrl: dto.avatarUrl,
           agentConfig: { model: "gpt-4o-mini", temperature: 0.7 },
           voiceConfig: { provider: "mock" },
@@ -77,12 +84,24 @@ export class PersonasService {
       (dto.tagline !== undefined ||
         dto.description !== undefined ||
         dto.systemPrompt !== undefined ||
-        dto.avatarUrl !== undefined)
+        dto.avatarUrl !== undefined ||
+        dto.scopeName !== undefined ||
+        dto.scopeDescription !== undefined ||
+        dto.allowedTopics !== undefined ||
+        dto.blockedTopics !== undefined ||
+        dto.behaviorRules !== undefined ||
+        dto.feedData !== undefined)
     ) {
       await this.personas.updateProfileByPersonaId(id, {
         tagline: dto.tagline,
         description: dto.description,
         systemPrompt: dto.systemPrompt,
+        scopeName: dto.scopeName,
+        scopeDescription: dto.scopeDescription,
+        allowedTopics: dto.allowedTopics,
+        blockedTopics: dto.blockedTopics,
+        behaviorRules: dto.behaviorRules,
+        feedData: dto.feedData as Prisma.InputJsonValue | undefined,
         avatarUrl: dto.avatarUrl,
       });
     }

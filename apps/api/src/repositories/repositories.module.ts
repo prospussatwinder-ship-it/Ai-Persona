@@ -7,6 +7,8 @@ import { PurchaseRepository } from "./purchase.repository";
 import { ScheduledPostRepository } from "./scheduled-post.repository";
 import { SubscriptionRepository } from "./subscription.repository";
 import { UserRepository } from "./user.repository";
+import { UserPersonaAccessRepository } from "./user-persona-access.repository";
+import { UserPersonaTrainingRepository } from "./user-persona-training.repository";
 
 @Global()
 @Module({
@@ -19,6 +21,8 @@ import { UserRepository } from "./user.repository";
     SubscriptionRepository,
     PurchaseRepository,
     ScheduledPostRepository,
+    UserPersonaAccessRepository,
+    UserPersonaTrainingRepository,
   ],
   exports: [
     UserRepository,
@@ -29,6 +33,8 @@ import { UserRepository } from "./user.repository";
     SubscriptionRepository,
     PurchaseRepository,
     ScheduledPostRepository,
+    UserPersonaAccessRepository,
+    UserPersonaTrainingRepository,
   ],
 })
 export class RepositoriesModule {}

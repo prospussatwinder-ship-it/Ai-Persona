@@ -14,6 +14,12 @@ export type PersonaFormValues = {
   tagline: string;
   description: string;
   systemPrompt: string;
+  scopeName: string;
+  scopeDescription: string;
+  allowedTopics: string;
+  blockedTopics: string;
+  behaviorRules: string;
+  feedData: string;
   avatarUrl: string;
 };
 
@@ -26,6 +32,12 @@ const empty: PersonaFormValues = {
   tagline: "",
   description: "",
   systemPrompt: "",
+  scopeName: "",
+  scopeDescription: "",
+  allowedTopics: "",
+  blockedTopics: "",
+  behaviorRules: "",
+  feedData: "{}",
   avatarUrl: "",
 };
 
@@ -59,6 +71,18 @@ export function PersonaForm({
         tagline: v.tagline.trim() || undefined,
         description: v.description.trim() || undefined,
         systemPrompt: v.systemPrompt.trim() || undefined,
+        scopeName: v.scopeName.trim() || undefined,
+        scopeDescription: v.scopeDescription.trim() || undefined,
+        allowedTopics: v.allowedTopics
+          .split(",")
+          .map((x) => x.trim())
+          .filter(Boolean),
+        blockedTopics: v.blockedTopics
+          .split(",")
+          .map((x) => x.trim())
+          .filter(Boolean),
+        behaviorRules: v.behaviorRules.trim() || undefined,
+        feedData: v.feedData.trim() ? (JSON.parse(v.feedData) as Record<string, unknown>) : undefined,
         avatarUrl: v.avatarUrl.trim() || undefined,
       };
       if (mode === "create") {
@@ -171,6 +195,68 @@ export function PersonaForm({
           value={v.systemPrompt}
           onChange={(e) => setV((x) => ({ ...x, systemPrompt: e.target.value }))}
           rows={6}
+          className="mt-1 w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 font-mono text-xs text-white"
+        />
+      </label>
+
+      <div className="grid gap-4 sm:grid-cols-2">
+        <label className="block text-sm">
+          <span className="text-zinc-400">Scope name</span>
+          <input
+            value={v.scopeName}
+            onChange={(e) => setV((x) => ({ ...x, scopeName: e.target.value }))}
+            className="mt-1 w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white"
+            placeholder="Food coach"
+          />
+        </label>
+        <label className="block text-sm">
+          <span className="text-zinc-400">Allowed topics (comma separated)</span>
+          <input
+            value={v.allowedTopics}
+            onChange={(e) => setV((x) => ({ ...x, allowedTopics: e.target.value }))}
+            className="mt-1 w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white"
+            placeholder="recipes, nutrition, meal planning"
+          />
+        </label>
+      </div>
+
+      <label className="block text-sm">
+        <span className="text-zinc-400">Scope description</span>
+        <textarea
+          value={v.scopeDescription}
+          onChange={(e) => setV((x) => ({ ...x, scopeDescription: e.target.value }))}
+          rows={2}
+          className="mt-1 w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white"
+        />
+      </label>
+
+      <label className="block text-sm">
+        <span className="text-zinc-400">Blocked topics (comma separated)</span>
+        <input
+          value={v.blockedTopics}
+          onChange={(e) => setV((x) => ({ ...x, blockedTopics: e.target.value }))}
+          className="mt-1 w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white"
+          placeholder="legal advice, medical diagnosis"
+        />
+      </label>
+
+      <label className="block text-sm">
+        <span className="text-zinc-400">Behavior rules</span>
+        <textarea
+          value={v.behaviorRules}
+          onChange={(e) => setV((x) => ({ ...x, behaviorRules: e.target.value }))}
+          rows={3}
+          className="mt-1 w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white"
+          placeholder="Stay in scope and redirect out-of-domain prompts politely."
+        />
+      </label>
+
+      <label className="block text-sm">
+        <span className="text-zinc-400">Feed data (JSON)</span>
+        <textarea
+          value={v.feedData}
+          onChange={(e) => setV((x) => ({ ...x, feedData: e.target.value }))}
+          rows={5}
           className="mt-1 w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 font-mono text-xs text-white"
         />
       </label>

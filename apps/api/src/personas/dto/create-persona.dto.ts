@@ -1,6 +1,9 @@
 import {
+  IsArray,
+  ArrayMaxSize,
   IsBoolean,
   IsEnum,
+  IsObject,
   IsOptional,
   IsString,
   MaxLength,
@@ -42,6 +45,35 @@ export class CreatePersonaDto {
   @IsOptional()
   @IsString()
   systemPrompt?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  scopeName?: string;
+
+  @IsOptional()
+  @IsString()
+  scopeDescription?: string;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(50)
+  @IsString({ each: true })
+  allowedTopics?: string[];
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(50)
+  @IsString({ each: true })
+  blockedTopics?: string[];
+
+  @IsOptional()
+  @IsString()
+  behaviorRules?: string;
+
+  @IsOptional()
+  @IsObject()
+  feedData?: Record<string, unknown>;
 
   @IsOptional()
   @IsString()

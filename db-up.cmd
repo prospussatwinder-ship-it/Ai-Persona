@@ -9,7 +9,7 @@ echo ========================================
 echo.
 
 docker info >nul 2>&1
-if errorlevel 1 (
+if errorlevel 1 ( 
     echo [ERROR] Docker is not running. Open Docker Desktop and wait for "Engine running".
     pause
     exit /b 1

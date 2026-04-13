@@ -6,6 +6,7 @@ import { AnalyticsService } from "../analytics/analytics.service";
 import { AuditService } from "../audit/audit.service";
 import { ComplianceService } from "../compliance/compliance.service";
 import { MemoryService } from "../memory/memory.service";
+import { PersonaContextService } from "../personas/persona-context.service";
 import { ConversationRepository } from "../repositories/conversation.repository";
 import { MessageRepository } from "../repositories/message.repository";
 import { UserRepository } from "../repositories/user.repository";
@@ -24,7 +25,8 @@ export class MessagesService {
     private readonly compliance: ComplianceService,
     private readonly analytics: AnalyticsService,
     private readonly audit: AuditService,
-    private readonly voice: VoiceService
+    private readonly voice: VoiceService,
+    private readonly personaContext: PersonaContextService
   ) {}
 
   async listMessages(userId: string, conversationId: string) {
@@ -37,6 +39,7 @@ export class MessagesService {
     this.compliance.assertMessageAllowed(dto.content);
     const conv = await this.conversations.findFirstWithPersonaForUser(userId, conversationId);
     if (!conv) throw new NotFoundException();
+    await this.personaContext.assertUserCanAccessPersona(userId, conv.persona);
 
     const account = await this.usersRepo.findByIdWithPassword(userId);
     if (!account) throw new NotFoundException();
@@ -50,12 +53,11 @@ export class MessagesService {
 
     const embedding = await this.ai.embed(dto.content);
     const rows = await this.memory.search(userId, conv.personaId, embedding, 8);
-    const memoryBlock =
-      rows.length === 0 ? "(no memories)" : rows.map((r) => `- ${r.content}`).join("\n");
-
-    const system =
-      (conv.persona.profile?.systemPrompt ?? `You are ${conv.persona.name}.`) +
-      `\n\nRetrieved memories for this user:\n${memoryBlock}`;
+    const promptContext = await this.personaContext.buildPromptContext({
+      userId,
+      persona: conv.persona,
+      semanticMemoryLines: rows.map((r) => r.content),
+    });
 
     const historyDesc = await this.messages.findRecentForPrompt(conversationId, 24);
     let history = historyDesc.slice().reverse();
@@ -66,7 +68,7 @@ export class MessagesService {
 
     const agentCfg = (conv.persona.profile?.agentConfig as { model?: string; temperature?: number }) ?? {};
     const assistantText = await this.ai.complete({
-      system,
+      system: promptContext.system,
       model: agentCfg.model,
       temperature: agentCfg.temperature ?? 0.7,
       messages: [
@@ -82,7 +84,18 @@ export class MessagesService {
       conversationId,
       role: MessageRole.assistant,
       content: assistantText,
-      metadata: { memoryCount: rows.length },
+      metadata: {
+        memoryCount: rows.length,
+        structuredMemoryCount: promptContext.structuredMemory.length,
+        hasTraining: !!promptContext.training,
+      },
+    });
+
+    await this.memory.extractAndStoreStableFacts({
+      userId,
+      personaId: conv.personaId,
+      conversationId,
+      userText: dto.content,
     });
 
     void this.aiUsage.recordSuccess({

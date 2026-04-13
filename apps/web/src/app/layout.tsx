@@ -7,8 +7,8 @@ import { SiteFooter } from "@/components/site-footer";
 export const metadata: Metadata = {
   title: "Persona Platform",
   description: "AI personas with scoped memory, realtime chat, and subscriptions.",
-};
-
+};   
+ 
 export default function RootLayout({
   children,
 }: Readonly<{

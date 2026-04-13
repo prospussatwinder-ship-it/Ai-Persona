@@ -1,18 +1,20 @@
 import { Injectable, NotFoundException } from "@nestjs/common";
 import { ConversationRepository } from "../repositories/conversation.repository";
-import { PersonaRepository } from "../repositories/persona.repository";
+import { PersonaContextService } from "../personas/persona-context.service";
 import type { CreateConversationDto } from "./dto/create-conversation.dto";
 
 @Injectable()
 export class ConversationsService {
   constructor(
-    private readonly personas: PersonaRepository,
-    private readonly conversations: ConversationRepository
+    private readonly conversations: ConversationRepository,
+    private readonly personaContext: PersonaContextService
   ) {}
 
   async create(userId: string, dto: CreateConversationDto) {
-    const persona = await this.personas.findFirstPublishedBySlug(dto.personaSlug.toLowerCase());
-    if (!persona) throw new NotFoundException("Persona not found");
+    const persona = await this.personaContext.resolvePersonaForUserBySlug(
+      userId,
+      dto.personaSlug.toLowerCase()
+    );
     return this.conversations.create({
       userId,
       personaId: persona.id,

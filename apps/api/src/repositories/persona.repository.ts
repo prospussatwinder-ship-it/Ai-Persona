@@ -18,6 +18,17 @@ export class PersonaRepository {
     });
   }
 
+  findFirstPublishedActiveBySlugAnyVisibility(slug: string) {
+    return this.prisma.persona.findFirst({
+      where: {
+        slug,
+        isPublished: true,
+        isActive: true,
+      },
+      include: { profile: true },
+    });
+  }
+
   findManyPublishedOrdered() {
     return this.prisma.persona.findMany({
       where: { isPublished: true, isActive: true, visibility: "PUBLIC" },
@@ -70,12 +81,7 @@ export class PersonaRepository {
 
   updateProfileByPersonaId(
     personaId: string,
-    data: {
-      tagline?: string | null;
-      description?: string | null;
-      systemPrompt?: string | null;
-      avatarUrl?: string | null;
-    }
+    data: Prisma.PersonaProfileUpdateInput
   ) {
     return this.prisma.personaProfile.update({
       where: { personaId },

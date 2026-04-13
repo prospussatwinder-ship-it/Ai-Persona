@@ -11,4 +11,11 @@ export class SubscriptionRepository {
       orderBy: { createdAt: "desc" },
     });
   }
+
+  hasActive(userId: string) {
+    return this.prisma.subscription.findFirst({
+      where: { userId, status: { in: ["active", "trialing"] } },
+      select: { id: true },
+    });
+  }
 }

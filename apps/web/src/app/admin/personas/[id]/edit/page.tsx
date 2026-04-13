@@ -20,6 +20,12 @@ type PersonaApi = {
     tagline: string | null;
     description: string | null;
     systemPrompt: string | null;
+    scopeName: string | null;
+    scopeDescription: string | null;
+    allowedTopics: string[] | null;
+    blockedTopics: string[] | null;
+    behaviorRules: string | null;
+    feedData: Record<string, unknown> | null;
     avatarUrl: string | null;
   } | null;
 };
@@ -81,6 +87,12 @@ export default function EditPersonaPage() {
     tagline: data.profile?.tagline ?? "",
     description: data.profile?.description ?? "",
     systemPrompt: data.profile?.systemPrompt ?? "",
+    scopeName: data.profile?.scopeName ?? "",
+    scopeDescription: data.profile?.scopeDescription ?? "",
+    allowedTopics: (data.profile?.allowedTopics ?? []).join(", "),
+    blockedTopics: (data.profile?.blockedTopics ?? []).join(", "),
+    behaviorRules: data.profile?.behaviorRules ?? "",
+    feedData: JSON.stringify(data.profile?.feedData ?? {}, null, 2),
     avatarUrl: data.profile?.avatarUrl ?? "",
   };
 

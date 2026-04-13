@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getApiBase } from "@/lib/config";
+import { PersonaActions } from "./persona-actions";
 
 type Persona = {
   id: string;
@@ -40,20 +41,7 @@ export default async function PersonaDetailPage({
           {persona.description ? (
             <p className="mt-4 text-zinc-400">{persona.description}</p>
           ) : null}
-          <div className="mt-8 flex flex-wrap gap-3">
-            <Link
-              href={`/chat/${persona.slug}`}
-              className="rounded-xl bg-violet-600 px-5 py-3 text-sm font-medium text-white hover:bg-violet-500"
-            >
-              Start chat
-            </Link>
-            <Link
-              href="/login"
-              className="rounded-xl border border-zinc-600 px-5 py-3 text-sm font-medium text-white hover:border-zinc-400"
-            >
-              Log in first
-            </Link>
-          </div>
+          <PersonaActions slug={persona.slug} />
         </div>
       </div>
     </div>

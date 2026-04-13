@@ -11,6 +11,7 @@ export type CompleteChatInput = {
 @Injectable()
 export class AiClientService {
   private readonly log = new Logger(AiClientService.name);
+  private readonly openAiKey = (process.env.OPENAI_API_KEY ?? "").trim();
 
   private baseUrl() {
     return process.env.AI_SERVICE_URL ?? "http://127.0.0.1:8001";
@@ -30,7 +31,16 @@ export class AiClientService {
       );
       return res.data.embedding;
     } catch (e) {
-      this.log.warn(`AI embed unavailable, using deterministic fallback (${String(e)})`);
+      this.log.warn(`AI embed service unavailable (${String(e)})`);
+      if (this.openAiKey) {
+        try {
+          const emb = await this.openAiEmbed(text);
+          return emb;
+        } catch (openAiErr) {
+          this.log.warn(`OpenAI embed fallback failed (${String(openAiErr)})`);
+        }
+      }
+      this.log.warn("Using deterministic local embedding fallback");
       return this.fallbackEmbedding(text);
     }
   }
@@ -45,9 +55,62 @@ export class AiClientService {
       );
       return res.data.text;
     } catch (e) {
-      this.log.warn(`AI service unavailable, using mock fallback (${String(e)})`);
+      this.log.warn(`AI completion service unavailable (${String(e)})`);
+      if (this.openAiKey) {
+        try {
+          return await this.openAiComplete(input);
+        } catch (openAiErr) {
+          this.log.warn(`OpenAI completion fallback failed (${String(openAiErr)})`);
+        }
+      }
       return `[mock-ai] Echo: ${input.messages.at(-1)?.content ?? ""}`;
     }
+  }
+
+  private async openAiEmbed(text: string): Promise<number[]> {
+    const model = process.env.OPENAI_EMBEDDING_MODEL ?? "text-embedding-3-small";
+    const res = await axios.post<{
+      data: Array<{ embedding: number[] }>;
+    }>(
+      "https://api.openai.com/v1/embeddings",
+      { model, input: text },
+      {
+        headers: {
+          Authorization: `Bearer ${this.openAiKey}`,
+          "Content-Type": "application/json",
+        },
+        timeout: 60_000,
+      }
+    );
+    const emb = res.data.data?.[0]?.embedding;
+    if (!Array.isArray(emb) || emb.length === 0) {
+      throw new Error("OpenAI embeddings response missing vector");
+    }
+    return emb;
+  }
+
+  private async openAiComplete(input: CompleteChatInput): Promise<string> {
+    const model = input.model ?? process.env.OPENAI_CHAT_MODEL ?? "gpt-4o-mini";
+    const res = await axios.post<{
+      choices?: Array<{ message?: { content?: string } }>;
+    }>(
+      "https://api.openai.com/v1/chat/completions",
+      {
+        model,
+        temperature: input.temperature ?? 0.7,
+        messages: [{ role: "system", content: input.system }, ...input.messages],
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${this.openAiKey}`,
+          "Content-Type": "application/json",
+        },
+        timeout: 90_000,
+      }
+    );
+    const text = res.data.choices?.[0]?.message?.content?.trim();
+    if (!text) throw new Error("OpenAI chat response missing content");
+    return text;
   }
 
   private fallbackEmbedding(text: string, dim = 1536): number[] {

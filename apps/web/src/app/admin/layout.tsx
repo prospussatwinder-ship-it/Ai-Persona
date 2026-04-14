@@ -84,7 +84,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       <AdminSidebar groups={nav} />
 
       <div className="min-w-0 lg:pl-60">
-        <div className="border-b border-zinc-800/80 bg-zinc-950/80 px-4 py-3 sm:px-6">
+        {/* <div className="border-b border-zinc-800/80 bg-zinc-950/80 px-4 py-3 sm:px-6">
           <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3">
             <p className="truncate text-xs text-zinc-500">
               {user.email ? <span className="text-zinc-400">{user.email}</span> : null}
@@ -100,7 +100,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
               </Link>
             </div>
           </div>
-        </div>
+        </div> */}
         <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6">{children}</div>
       </div>
     </div>

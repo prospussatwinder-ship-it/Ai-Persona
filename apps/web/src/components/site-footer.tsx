@@ -93,7 +93,7 @@ export function SiteFooter() {
           <p className="text-sm text-zinc-600">
             © {new Date().getFullYear()} Persona Platform. All rights reserved.
           </p>
-          <p className="text-xs text-zinc-600">Built for production SaaS workflows.</p>
+           
         </div>
       </div>
     </footer>

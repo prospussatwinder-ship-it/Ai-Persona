@@ -32,11 +32,11 @@ export function AdminSidebar({
   const pathname = usePathname();
 
   return (
-    <aside className="flex w-full flex-col border-b border-zinc-800 bg-zinc-950/95 lg:fixed lg:inset-y-0 lg:z-40 lg:w-60 lg:border-b-0 lg:border-r lg:pt-0">
-      <div className="flex h-14 items-center border-b border-zinc-800 px-4 lg:h-16 lg:border-zinc-800/80">
+    <aside className="flex w-full flex-col border-b border-zinc-800 bg-zinc-950/95 lg:fixed lg:inset-y-0 lg:z-40 lg:w-60 lg:border-b-0 lg:border-r lg:pt-18">
+      <div className="flex h-14 items-center  border-zinc-800 px-4 lg:h-16 lg:border-zinc-800/80">
         <Link
           href="/admin/dashboard"
-          className="text-sm font-semibold tracking-tight text-white"
+          className="text-base font-semibold tracking-tight text-white"
           onClick={onNavigate}
         >
           Admin<span className="text-violet-400">Console</span>

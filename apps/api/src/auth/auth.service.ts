@@ -7,7 +7,7 @@ import {
 import { JwtService } from "@nestjs/jwt";
 import * as bcrypt from "bcryptjs";
 import { createHash, randomBytes } from "crypto";
-import { UserRole } from "@prisma/client";
+import { UserAccountStatus, UserRole } from "@prisma/client";
 import { UserRepository } from "../repositories/user.repository";
 import type { JwtAccessPayload } from "../common/types/jwt-payload.type";
 import { UsersService } from "../users/users.service";
@@ -45,7 +45,11 @@ export class AuthService {
   async login(dto: LoginDto) {
     const email = dto.email.toLowerCase();
     const user = await this.usersRepo.findByEmail(email);
-    if (!user || !(await bcrypt.compare(dto.password, user.passwordHash))) {
+    if (
+      !user ||
+      user.status !== UserAccountStatus.active ||
+      !(await bcrypt.compare(dto.password, user.passwordHash))
+    ) {
       throw new UnauthorizedException("Invalid credentials");
     }
     await this.prisma.user.update({

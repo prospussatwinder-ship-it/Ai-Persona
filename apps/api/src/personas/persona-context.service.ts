@@ -87,14 +87,11 @@ export class PersonaContextService {
     semanticMemoryLines: string[];
   }) {
     const structured = await this.memory.listStructured(input.userId, input.persona.id, 20);
-    const training = await this.trainingRepo.getActive(input.userId, input.persona.id);
     const profile = input.persona.profile;
 
     const allowedTopics = this.jsonArrayToLines(profile?.allowedTopics);
     const blockedTopics = this.jsonArrayToLines(profile?.blockedTopics);
     const feedData = this.jsonToPretty(profile?.feedData);
-    const trainingJson = this.jsonToPretty(training?.structuredProfile);
-    const trainingNotes = training?.trainingNotes?.trim();
     const structuredLines =
       structured.length === 0
         ? ["(none)"]
@@ -126,12 +123,6 @@ ${behaviorRules || "(none)"}
 Persona feed / knowledge configuration:
 ${feedData}
 
-User-specific training for this persona:
-- Title: ${training?.title?.trim() || "(none)"}
-- Notes: ${trainingNotes || "(none)"}
-- Structured profile JSON:
-${trainingJson}
-
 User-specific memories for this persona (structured):
 ${structuredLines.join("\n")}
 
@@ -141,11 +132,11 @@ ${semanticLines.join("\n")}
 Guardrails:
 1) Never answer outside this persona scope as if you are another persona.
 2) If user asks outside allowed topics, politely state this persona is specialized for "${scopeName}" and redirect to in-scope help.
-3) Use only this user's training and this user's memories for this persona.
+3) Use only this user's memories and learned behavior for this persona.
 4) Do not claim access to data from other users or other personas.
 5) Keep responses practical and concise.`;
 
-    return { system, training, structuredMemory: structured };
+    return { system, training: null, structuredMemory: structured };
   }
 
   private jsonArrayToLines(value: unknown): string[] {

@@ -87,15 +87,16 @@ export class MessagesService {
       metadata: {
         memoryCount: rows.length,
         structuredMemoryCount: promptContext.structuredMemory.length,
-        hasTraining: !!promptContext.training,
       },
     });
 
-    await this.memory.extractAndStoreStableFacts({
+    await this.memory.learnFromTurn({
       userId,
       personaId: conv.personaId,
       conversationId,
       userText: dto.content,
+      assistantText,
+      history: history.map((h) => ({ role: h.role, content: h.content })),
     });
 
     void this.aiUsage.recordSuccess({

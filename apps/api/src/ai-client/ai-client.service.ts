@@ -53,7 +53,11 @@ export class AiClientService {
         input,
         { headers: this.headers(), timeout: 60_000 }
       );
-      return res.data.text;
+      const text = (res.data.text ?? "").trim();
+      if (text.startsWith("[ai-fallback]") || text.startsWith("[mock-ai]")) {
+        return this.localFallbackReply(input.system, input.messages.at(-1)?.content ?? "");
+      }
+      return text;
     } catch (e) {
       this.log.warn(`AI completion service unavailable (${String(e)})`);
       if (this.openAiKey) {
@@ -63,7 +67,7 @@ export class AiClientService {
           this.log.warn(`OpenAI completion fallback failed (${String(openAiErr)})`);
         }
       }
-      return `[mock-ai] Echo: ${input.messages.at(-1)?.content ?? ""}`;
+      return this.localFallbackReply(input.system, input.messages.at(-1)?.content ?? "");
     }
   }
 
@@ -111,6 +115,24 @@ export class AiClientService {
     const text = res.data.choices?.[0]?.message?.content?.trim();
     if (!text) throw new Error("OpenAI chat response missing content");
     return text;
+  }
+
+  private localFallbackReply(system: string, userText: string): string {
+    let scope = "this persona";
+    for (const rawLine of system.split("\n")) {
+      const line = rawLine.trim().toLowerCase();
+      if (line.startsWith("- name:")) {
+        scope = rawLine.split(":", 2)[1]?.trim() || scope;
+        break;
+      }
+    }
+    const compact = userText.trim().replace(/\s+/g, " ").slice(0, 240);
+    return [
+      `I am running in local fallback mode for ${scope}.`,
+      "",
+      `I understood: "${compact || "your request"}".`,
+      "Share one specific goal and 2-3 preferences, and I will generate a focused answer in this persona scope.",
+    ].join("\n");
   }
 
   private fallbackEmbedding(text: string, dim = 1536): number[] {

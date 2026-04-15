@@ -97,4 +97,107 @@ export class MemoryService {
       });
     }
   }
+
+  async learnFromTurn(input: {
+    userId: string;
+    personaId: string;
+    conversationId: string;
+    userText: string;
+    assistantText: string;
+    history: Array<{ role: string; content: string }>;
+  }) {
+    await this.extractAndStoreStableFacts({
+      userId: input.userId,
+      personaId: input.personaId,
+      conversationId: input.conversationId,
+      userText: input.userText,
+    });
+
+    const topicKeywords = this.extractKeywords(input.userText);
+    if (topicKeywords.length > 0) {
+      await this.upsertStructured({
+        userId: input.userId,
+        personaId: input.personaId,
+        conversationId: input.conversationId,
+        memoryKey: "topics.recent",
+        memoryType: "short_term_topics",
+        content: topicKeywords.join(", "),
+        confidenceScore: 0.65,
+        source: MemorySource.chat_summary,
+        metadata: { from: "learnFromTurn", kind: "topics" },
+      });
+    }
+
+    const tone = this.detectTonePreference(input.userText, input.history);
+    await this.upsertStructured({
+      userId: input.userId,
+      personaId: input.personaId,
+      conversationId: input.conversationId,
+      memoryKey: "style.preference",
+      memoryType: "long_term_trait",
+      content: tone,
+      confidenceScore: 0.6,
+      source: MemorySource.chat_summary,
+      metadata: { from: "learnFromTurn", kind: "tone" },
+    });
+
+    const intent = this.detectIntentPattern(input.userText);
+    await this.upsertStructured({
+      userId: input.userId,
+      personaId: input.personaId,
+      conversationId: input.conversationId,
+      memoryKey: "intent.recent",
+      memoryType: "short_term_intent",
+      content: intent,
+      confidenceScore: 0.58,
+      source: MemorySource.chat_summary,
+      metadata: { from: "learnFromTurn", kind: "intent" },
+    });
+
+    const summary = this.buildRecentSummary(input.userText, input.assistantText);
+    await this.upsertStructured({
+      userId: input.userId,
+      personaId: input.personaId,
+      conversationId: input.conversationId,
+      memoryKey: "summary.recent",
+      memoryType: "short_term_summary",
+      content: summary,
+      confidenceScore: 0.72,
+      source: MemorySource.chat_summary,
+      metadata: { from: "learnFromTurn", kind: "summary" },
+    });
+  }
+
+  private extractKeywords(text: string): string[] {
+    const words = text
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]/g, " ")
+      .split(/\s+/)
+      .filter((w) => w.length >= 4)
+      .filter((w) => !["this", "that", "with", "from", "have", "want", "need", "please"].includes(w));
+    return Array.from(new Set(words)).slice(0, 6);
+  }
+
+  private detectTonePreference(userText: string, history: Array<{ role: string; content: string }>): string {
+    const sample = [userText, ...history.slice(-6).map((m) => m.content)].join(" ").toLowerCase();
+    const conciseSignals = ["short", "brief", "quick", "simple"];
+    if (conciseSignals.some((s) => sample.includes(s))) return "prefers concise responses";
+    if (sample.includes("step by step") || sample.includes("detailed")) {
+      return "prefers detailed step-by-step responses";
+    }
+    return "neutral and practical response style";
+  }
+
+  private detectIntentPattern(userText: string): string {
+    const t = userText.trim().toLowerCase();
+    if (t.endsWith("?") || t.startsWith("what") || t.startsWith("how")) return "question-driven";
+    if (t.startsWith("give me") || t.startsWith("create") || t.startsWith("make")) return "action-request";
+    return "mixed intent";
+  }
+
+  private buildRecentSummary(userText: string, assistantText: string): string {
+    const u = userText.trim().replace(/\s+/g, " ").slice(0, 180);
+    const a = assistantText.trim().replace(/\s+/g, " ").slice(0, 180);
+    return `User asked: "${u}". Assistant responded with guidance: "${a}".`;
+  }
 }

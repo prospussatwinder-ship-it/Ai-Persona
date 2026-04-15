@@ -60,9 +60,10 @@ Default seed logins (see table below for full list):
 cd apps/ai
 python -m venv .venv
 .\.venv\Scripts\activate   # Windows; use `source .venv/bin/activate` on Unix
+python -m pip install --upgrade pip
 pip install -r requirements.txt -r requirements-dev.txt
-# Copy .env.example → .env
-uvicorn app.main:app --reload --port 8001
+# Windows cmd: copy .env.example .env
+python -m uvicorn app.main:app --reload --port 8001
 ```
 
 Secrets load from `apps/ai/.env` (see `apps/ai/.env.example`).

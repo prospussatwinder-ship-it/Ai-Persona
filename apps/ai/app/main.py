@@ -106,7 +106,30 @@ async def complete_chat(system: str, messages: list[dict], model: str, temperatu
         except Exception:
             pass
     last = messages[-1]["content"] if messages else ""
-    return f"[ai-fallback] {last}"
+    return local_fallback_reply(system, last)
+
+
+def local_fallback_reply(system: str, user_text: str) -> str:
+    """Better offline fallback when OpenAI API is unavailable/quota exhausted."""
+    scope_name = "assistant"
+    for line in system.splitlines():
+        clean = line.strip()
+        if clean.lower().startswith("- name:"):
+            scope_name = clean.split(":", 1)[1].strip() or scope_name
+            break
+
+    text = user_text.strip() or "your request"
+    compact = " ".join(text.split())
+    if len(compact) > 220:
+        compact = compact[:217] + "..."
+
+    return (
+        f"I am running in local fallback mode for **{scope_name}** right now.\n\n"
+        f"Based on your message: \"{compact}\", here is a focused next step:\n"
+        f"1) Clarify the exact outcome you want.\n"
+        f"2) Share any constraints/preferences.\n"
+        f"3) I will generate a scoped plan tailored to this persona."
+    )
 
 
 @app.get("/health")

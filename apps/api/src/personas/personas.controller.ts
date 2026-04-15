@@ -21,7 +21,6 @@ import { PermissionsGuard } from "../rbac/permissions.guard";
 import { CreatePersonaDto } from "./dto/create-persona.dto";
 import { GrantPersonaAccessDto } from "./dto/grant-persona-access.dto";
 import { PublishPersonaDto } from "./dto/publish-persona.dto";
-import { UpsertPersonaTrainingDto } from "./dto/upsert-persona-training.dto";
 import { UpdatePersonaDto } from "./dto/update-persona.dto";
 import { MemoryService } from "../memory/memory.service";
 import { PersonaContextService } from "./persona-context.service";
@@ -63,32 +62,30 @@ export class PersonasController {
       req.user.sub,
       slug.toLowerCase()
     );
-    const training = await this.personaContext.getUserTraining(req.user.sub, persona.id);
     return {
       persona: { id: persona.id, slug: persona.slug, name: persona.name },
-      training,
+      deprecated: true,
+      mode: "automatic-learning",
+      message:
+        "Manual persona training fields are deprecated. This persona now adapts automatically from chat history.",
     };
   }
 
   @UseGuards(AuthGuard("jwt"))
   @Put("personas/:slug/training")
-  async upsertMyTraining(
-    @Req() req: Authed,
-    @Param("slug") slug: string,
-    @Body() body: UpsertPersonaTrainingDto
-  ) {
+  async upsertMyTraining(@Req() req: Authed, @Param("slug") slug: string) {
     const persona = await this.personaContext.resolvePersonaForUserBySlug(
       req.user.sub,
       slug.toLowerCase()
     );
-    const training = await this.personaContext.upsertUserTraining({
-      userId: req.user.sub,
-      personaId: persona.id,
-      title: body.title,
-      trainingNotes: body.trainingNotes,
-      structuredProfile: body.structuredProfile as Prisma.InputJsonValue | undefined,
-    });
-    return { ok: true, training };
+    return {
+      ok: true,
+      deprecated: true,
+      persona: { id: persona.id, slug: persona.slug, name: persona.name },
+      mode: "automatic-learning",
+      message:
+        "Manual training updates are disabled. Adaptive learning is updated automatically from conversation behavior.",
+    };
   }
 
   @UseGuards(AuthGuard("jwt"))

@@ -15,9 +15,9 @@ type Msg = {
 
 type ConversationRow = {
   id: string;
-  title: string | null;
-  updatedAt: string;
-  persona: { slug: string; name: string };
+  title: string | null; // title of the conversation, can be null if no title is set
+  updatedAt: string; // ISO 8601 format
+  persona: { slug: string; name: string }; // slug and name of the persona  
 };
 
 export function ChatClient({ personaSlug, personaName }: { personaSlug: string; personaName: string }) {
@@ -186,7 +186,7 @@ export function ChatClient({ personaSlug, personaName }: { personaSlug: string; 
   }
 
   return (
-    <div className="mx-auto flex h-[calc(100vh-8rem)] w-full max-w-6xl gap-4 px-4 py-6 sm:px-6">
+    <div className="mx-auto flex h-[calc(100vh-8rem)] w-full max-w-7xl gap-4 px-4 py-6 sm:px-6">
       <aside className="hidden w-72 shrink-0 flex-col rounded-2xl border border-zinc-800 bg-zinc-900/30 p-3 md:flex">
         <div className="mb-3 flex items-center justify-between gap-2">
           <div>
@@ -196,7 +196,7 @@ export function ChatClient({ personaSlug, personaName }: { personaSlug: string; 
           <button
             type="button"
             disabled={newChatBusy}
-            onClick={() => void startNewChat()}
+            onClick={() => void startNewChat()} 
             className="rounded-md border border-zinc-700 px-2 py-1 text-xs text-zinc-200 hover:bg-zinc-800 disabled:opacity-50"
           >
             + New
@@ -248,13 +248,13 @@ export function ChatClient({ personaSlug, personaName }: { personaSlug: string; 
             >
               + New chat
             </button>
-            <button
+            {/* <button
               type="button"
               onClick={logout}
               className="text-xs text-zinc-500 hover:text-white"
             >
               Log out
-            </button>
+            </button> */}
           </div>
         </div>
         <div className="flex-1 space-y-3 overflow-y-auto py-4">

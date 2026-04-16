@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Headers,
+  Param,
   Post,
   Req,
   UseGuards,
@@ -19,17 +20,30 @@ export class BillingController {
 
   @UseGuards(AuthGuard("jwt"))
   @Post("checkout/subscription")
-  checkoutSubscription(@Req() req: Authed, @Body() body: { priceId: string }) {
-    return this.billing.createSubscriptionCheckout(req.user.sub, body.priceId);
+  checkoutSubscription(
+    @Req() req: Authed,
+    @Body() body: { provider?: "stripe" | "ccbill" | "crypto"; priceId?: string; planSlug?: string }
+  ) {
+    return this.billing.createSubscriptionCheckout({
+      userId: req.user.sub,
+      provider: body.provider,
+      priceId: body.priceId,
+      planSlug: body.planSlug,
+    });
   }
 
   @UseGuards(AuthGuard("jwt"))
   @Post("checkout/ppv")
   checkoutPpv(
     @Req() req: Authed,
-    @Body() body: { productKey: string; amountCents: number }
+    @Body() body: { provider?: "stripe" | "ccbill" | "crypto"; productKey: string; amountCents: number }
   ) {
-    return this.billing.createPpvPaymentIntent(req.user.sub, body.productKey, body.amountCents);
+    return this.billing.createPpvPaymentIntent({
+      userId: req.user.sub,
+      provider: body.provider,
+      productKey: body.productKey,
+      amountCents: body.amountCents,
+    });
   }
 
   @Post("webhook")
@@ -38,6 +52,16 @@ export class BillingController {
     @Headers("stripe-signature") signature?: string
   ) {
     const raw = req.rawBody ?? Buffer.from(JSON.stringify(req.body));
-    return this.billing.handleWebhook(raw, signature);
+    return this.billing.handleWebhook("stripe", raw, signature);
+  }
+
+  @Post("webhook/:provider")
+  webhookByProvider(
+    @Param("provider") provider: string,
+    @Req() req: RawBodyRequest<Request>,
+    @Headers("stripe-signature") signature?: string
+  ) {
+    const raw = req.rawBody ?? Buffer.from(JSON.stringify(req.body));
+    return this.billing.handleWebhook(provider, raw, signature);
   }
 }

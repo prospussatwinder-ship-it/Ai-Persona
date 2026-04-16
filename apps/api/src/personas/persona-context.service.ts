@@ -7,20 +7,20 @@ import type {
   UserPersonaAccessStatus,
 } from "@prisma/client";
 import { MemoryService } from "../memory/memory.service";
+import { PrismaService } from "../prisma/prisma.service";
 import { PersonaRepository } from "../repositories/persona.repository";
 import { PurchaseRepository } from "../repositories/purchase.repository";
 import { SubscriptionRepository } from "../repositories/subscription.repository";
 import { UserPersonaAccessRepository } from "../repositories/user-persona-access.repository";
-import { UserPersonaTrainingRepository } from "../repositories/user-persona-training.repository";
 
 type PersonaWithProfile = Persona & { profile: PersonaProfile | null };
 
 @Injectable()
 export class PersonaContextService {
   constructor(
+    private readonly prisma: PrismaService,
     private readonly personas: PersonaRepository,
     private readonly accessRepo: UserPersonaAccessRepository,
-    private readonly trainingRepo: UserPersonaTrainingRepository,
     private readonly purchases: PurchaseRepository,
     private readonly subscriptions: SubscriptionRepository,
     private readonly memory: MemoryService
@@ -34,6 +34,11 @@ export class PersonaContextService {
   }
 
   async assertUserCanAccessPersona(userId: string, persona: PersonaWithProfile) {
+    const packageGate = await this.assertPersonaAllowedByPackage(userId, persona.slug);
+    if (!packageGate.allowed) {
+      throw new ForbiddenException(packageGate.reason);
+    }
+
     if (persona.visibility === "PUBLIC") return;
 
     const explicit = await this.accessRepo.findActiveByUserAndPersona(userId, persona.id);
@@ -67,26 +72,25 @@ export class PersonaContextService {
     return this.accessRepo.upsertAccess(input);
   }
 
-  getUserTraining(userId: string, personaId: string) {
-    return this.trainingRepo.getActive(userId, personaId);
-  }
-
-  upsertUserTraining(input: {
-    userId: string;
-    personaId: string;
-    title?: string | null;
-    trainingNotes?: string | null;
-    structuredProfile?: Prisma.InputJsonValue;
-  }) {
-    return this.trainingRepo.upsertActive(input);
-  }
-
   async buildPromptContext(input: {
     userId: string;
     persona: PersonaWithProfile;
     semanticMemoryLines: string[];
   }) {
-    const structured = await this.memory.listStructured(input.userId, input.persona.id, 20);
+    const activePackage = await this.prisma.userPlanSubscription.findFirst({
+      where: {
+        userId: input.userId,
+        status: { in: ["active", "trial"] },
+      },
+      orderBy: { createdAt: "desc" },
+      include: { plan: true },
+    });
+    const packageFeatures = (activePackage?.plan?.featureConfig ?? {}) as {
+      memoryDepth?: unknown;
+    };
+    const memoryDepth = String(packageFeatures.memoryDepth ?? "standard").toLowerCase();
+    const structuredLimit = memoryDepth === "max" ? 40 : memoryDepth === "deep" ? 28 : 16;
+    const structured = await this.memory.listStructured(input.userId, input.persona.id, structuredLimit);
     const profile = input.persona.profile;
 
     const allowedTopics = this.jsonArrayToLines(profile?.allowedTopics);
@@ -107,6 +111,8 @@ export class PersonaContextService {
     const scopeDescription = profile?.scopeDescription?.trim() || "";
     const behaviorRules = profile?.behaviorRules?.trim() || "";
     const basePrompt = profile?.systemPrompt?.trim() || `You are ${input.persona.name}.`;
+    const entitlementLabel = activePackage?.plan?.name ?? "No active package";
+    const entitlementConfig = this.jsonToPretty(activePackage?.plan?.featureConfig ?? {});
 
     const system = `${basePrompt}
 
@@ -123,6 +129,11 @@ ${behaviorRules || "(none)"}
 Persona feed / knowledge configuration:
 ${feedData}
 
+Subscription entitlement context:
+- Active package: ${entitlementLabel}
+- Package features:
+${entitlementConfig}
+
 User-specific memories for this persona (structured):
 ${structuredLines.join("\n")}
 
@@ -137,6 +148,44 @@ Guardrails:
 5) Keep responses practical and concise.`;
 
     return { system, training: null, structuredMemory: structured };
+  }
+
+  private async assertPersonaAllowedByPackage(userId: string, personaSlug: string) {
+    const sub = await this.prisma.userPlanSubscription.findFirst({
+      where: {
+        userId,
+        status: { in: ["active", "trial"] },
+      },
+      orderBy: { createdAt: "desc" },
+      include: { plan: true },
+    });
+
+    if (!sub) {
+      return {
+        allowed: false,
+        reason: "No active package found. Please subscribe to access persona chat.",
+      };
+    }
+
+    const featureConfig = (sub.plan.featureConfig ?? {}) as {
+      allowedPersonaSlugs?: unknown;
+    };
+    const allowedPersonaSlugs = Array.isArray(featureConfig.allowedPersonaSlugs)
+      ? featureConfig.allowedPersonaSlugs.map((x) => String(x).trim().toLowerCase()).filter(Boolean)
+      : [];
+
+    if (allowedPersonaSlugs.length === 0) {
+      return { allowed: true };
+    }
+
+    if (allowedPersonaSlugs.includes(personaSlug.toLowerCase())) {
+      return { allowed: true };
+    }
+
+    return {
+      allowed: false,
+      reason: `Your current package does not include access to "${personaSlug}".`,
+    };
   }
 
   private jsonArrayToLines(value: unknown): string[] {

@@ -9,6 +9,18 @@ import {
 import bcrypt from "bcryptjs";
 
 const prisma = new PrismaClient();
+type PersonaSeed = {
+  slug: string;
+  name: string;
+  tagline: string;
+  scopeName: string;
+  allowedTopics: string[];
+  blockedTopics: string[];
+  scopeDescription?: string;
+  behaviorRules?: string;
+  systemPrompt?: string;
+  feedData?: Record<string, unknown>;
+};
 
 const PERMISSIONS: { slug: string; module: string; name: string }[] = [
   { slug: "dashboard.view", module: "dashboard", name: "View dashboard" },
@@ -183,22 +195,34 @@ async function main() {
     update: { passwordHash: custHash },
   });
 
-  const freePlan = await prisma.subscriptionPlan.upsert({
-    where: { slug: "free" },
+  const basicPlan = await prisma.subscriptionPlan.upsert({
+    where: { slug: "basic" },
     create: {
-      name: "Free",
-      slug: "free",
-      description: "Limited AI chat",
-      price: 0,
+      name: "Basic",
+      slug: "basic",
+      description: "Starter package with limited chat and selected agent access",
+      price: 9.99,
       currency: "usd",
       billingCycle: BillingCycle.MONTHLY,
       trialDays: 0,
-      aiRequestLimit: 50,
+      aiRequestLimit: 200,
       status: PlanStatus.ACTIVE,
       sortOrder: 1,
-      featureConfig: { tier: "free" },
+      featureConfig: {
+        tier: "basic",
+        memoryDepth: "standard",
+        allowedPersonaSlugs: ["fashion-agent", "food-agent"],
+      },
     },
-    update: { aiRequestLimit: 50 },
+    update: {
+      name: "Basic",
+      aiRequestLimit: 200,
+      featureConfig: {
+        tier: "basic",
+        memoryDepth: "standard",
+        allowedPersonaSlugs: ["fashion-agent", "food-agent"],
+      },
+    },
   });
 
   const proPlan = await prisma.subscriptionPlan.upsert({
@@ -206,49 +230,175 @@ async function main() {
     create: {
       name: "Pro",
       slug: "pro",
-      description: "Higher AI limits",
+      description: "Expanded package with more usage and broader agent access",
       price: 29.99,
       currency: "usd",
       billingCycle: BillingCycle.MONTHLY,
       trialDays: 7,
-      aiRequestLimit: 2000,
+      aiRequestLimit: 2500,
       status: PlanStatus.ACTIVE,
       sortOrder: 2,
-      featureConfig: { tier: "pro" },
+      featureConfig: {
+        tier: "pro",
+        memoryDepth: "deep",
+        allowedPersonaSlugs: ["fashion-agent", "food-agent", "gym-agent"],
+      },
     },
-    update: {},
+    update: {
+      description: "Expanded package with more usage and broader agent access",
+      aiRequestLimit: 2500,
+      featureConfig: {
+        tier: "pro",
+        memoryDepth: "deep",
+        allowedPersonaSlugs: ["fashion-agent", "food-agent", "gym-agent"],
+      },
+    },
+  });
+
+  const premiumPlan = await prisma.subscriptionPlan.upsert({
+    where: { slug: "premium" },
+    create: {
+      name: "Premium",
+      slug: "premium",
+      description: "Full package with all agents and highest personalization depth",
+      price: 79.99,
+      currency: "usd",
+      billingCycle: BillingCycle.MONTHLY,
+      trialDays: 7,
+      aiRequestLimit: 10000,
+      status: PlanStatus.ACTIVE,
+      sortOrder: 3,
+      featureConfig: {
+        tier: "premium",
+        memoryDepth: "max",
+        allowedPersonaSlugs: ["fashion-agent", "food-agent", "gym-agent", "business-agent"],
+      },
+    },
+    update: {
+      description: "Full package with all agents and highest personalization depth",
+      aiRequestLimit: 10000,
+      featureConfig: {
+        tier: "premium",
+        memoryDepth: "max",
+        allowedPersonaSlugs: ["fashion-agent", "food-agent", "gym-agent", "business-agent"],
+      },
+    },
+  });
+
+  await prisma.subscriptionPlan.upsert({
+    where: { slug: "free" },
+    create: {
+      name: "Free Legacy",
+      slug: "free",
+      description: "Legacy compatibility package",
+      price: 0,
+      currency: "usd",
+      billingCycle: BillingCycle.MONTHLY,
+      trialDays: 0,
+      aiRequestLimit: 30,
+      status: PlanStatus.INACTIVE,
+      sortOrder: 98,
+      featureConfig: { tier: "free-legacy", allowedPersonaSlugs: [] },
+    },
+    update: { status: PlanStatus.INACTIVE },
   });
 
   await prisma.subscriptionPlan.upsert({
     where: { slug: "enterprise" },
     create: {
-      name: "Enterprise",
+      name: "Enterprise Legacy",
       slug: "enterprise",
-      description: "Team limits + priority",
+      description: "Legacy compatibility package",
       price: 499,
       currency: "usd",
       billingCycle: BillingCycle.YEARLY,
-      trialDays: 14,
+      trialDays: 0,
       aiRequestLimit: 100000,
       maxUsers: 100,
-      status: PlanStatus.ACTIVE,
-      sortOrder: 3,
-      featureConfig: { tier: "enterprise" },
+      status: PlanStatus.INACTIVE,
+      sortOrder: 99,
+      featureConfig: { tier: "enterprise-legacy" },
     },
-    update: {},
+    update: { status: PlanStatus.INACTIVE },
   });
 
   await prisma.userPlanSubscription.deleteMany({ where: { userId: customer.id } });
   await prisma.userPlanSubscription.create({
     data: {
       userId: customer.id,
-      planId: freePlan.id,
+      planId: basicPlan.id,
       status: AccountSubscriptionStatus.active,
       startDate: new Date(),
     },
   });
 
-  const personas = [
+  const personas: PersonaSeed[] = [
+    {
+      slug: "fashion-agent",
+      name: "Fashion Agent",
+      tagline: "Style strategist with practical recommendations",
+      scopeName: "Fashion styling and wardrobe optimization",
+      scopeDescription:
+        "Helps users choose outfits, build capsule wardrobes, style for events, and align fashion with budget and lifestyle.",
+      behaviorRules:
+        "Lead with practical styling advice, suggest alternatives by budget and body comfort, and keep tone confident and encouraging.",
+      allowedTopics: [
+        "personal style",
+        "outfit planning",
+        "wardrobe basics",
+        "seasonal trends",
+        "budget fashion",
+      ],
+      blockedTopics: ["medical diagnosis", "legal advice", "investment advice"],
+      systemPrompt:
+        "You are Fashion Agent. Stay focused on fashion and style coaching. Blend timeless style guidance with user preferences learned from chat history.",
+      feedData: { category: "fashion", upsellStyle: "suggest capsule upgrades only when relevant" },
+    },
+    {
+      slug: "food-agent",
+      name: "Food Agent",
+      tagline: "Meal planning and nutrition routine coach",
+      scopeName: "Food planning, recipes, and everyday nutrition",
+      scopeDescription:
+        "Provides meal ideas, recipe adjustments, grocery planning, and practical food habits tuned to user routines.",
+      behaviorRules:
+        "Prefer actionable meal suggestions, include quick alternatives, and account for constraints like budget, schedule, and ingredients.",
+      allowedTopics: ["recipes", "meal prep", "nutrition planning", "ingredient swaps", "grocery lists"],
+      blockedTopics: ["medical diagnosis", "prescription advice", "legal advice"],
+      systemPrompt:
+        "You are Food Agent. Stay focused on food and meal strategy, and personalize suggestions to recurring user preferences and constraints.",
+      feedData: { category: "food", upsellStyle: "offer weekly plans for consistency" },
+    },
+    {
+      slug: "gym-agent",
+      name: "Gym Agent",
+      tagline: "Fitness progression partner",
+      scopeName: "Gym training and habit consistency",
+      scopeDescription:
+        "Guides workouts, progression, motivation, and sustainable training habits based on user goals and engagement patterns.",
+      behaviorRules:
+        "Give safe fitness guidance, motivate without overpromising, and prioritize consistency over intensity spikes.",
+      allowedTopics: ["workout planning", "progressive overload", "habit tracking", "nutrition basics", "recovery basics"],
+      blockedTopics: ["medical diagnosis", "supplement prescriptions", "legal advice"],
+      systemPrompt:
+        "You are Gym Agent. Stay focused on fitness coaching, adapt to the user's long-term goals, and preserve an energetic but practical tone.",
+      feedData: { category: "gym", upsellStyle: "promote milestone-based plans when appropriate" },
+    },
+    {
+      slug: "business-agent",
+      name: "Business Agent",
+      tagline: "Growth and operations advisor",
+      scopeName: "Business strategy and execution support",
+      scopeDescription:
+        "Helps with business planning, offers, sales messaging, operations structure, and performance-focused decision support.",
+      behaviorRules:
+        "Be concise, strategic, and metrics-aware. Prioritize actions that improve revenue, retention, and operational clarity.",
+      allowedTopics: ["business planning", "offer design", "customer retention", "sales messaging", "execution priorities"],
+      blockedTopics: ["legal advice", "tax filing advice", "medical diagnosis"],
+      systemPrompt:
+        "You are Business Agent. Provide direct business guidance and adapt recommendations using user behavior and prior conversation patterns.",
+      feedData: { category: "business", upsellStyle: "surface ROI-driven next actions" },
+    },
     {
       slug: "nova-aria",
       name: "Nova Aria",
@@ -256,6 +406,8 @@ async function main() {
       scopeName: "Career and planning coach",
       allowedTopics: ["career growth", "planning", "productivity", "goal setting"],
       blockedTopics: ["medical diagnosis", "legal advice", "financial investing"],
+      scopeDescription: "Supports users with practical planning systems and sustainable professional growth.",
+      behaviorRules: "Keep responses structured and useful, with clear next actions.",
     },
     {
       slug: "river-lens",
@@ -264,6 +416,8 @@ async function main() {
       scopeName: "Mindful reflection guide",
       allowedTopics: ["journaling", "reflection", "mindfulness habits", "emotional check-ins"],
       blockedTopics: ["clinical therapy", "legal advice", "medical diagnosis"],
+      scopeDescription: "Guides reflective habits while staying outside therapy claims.",
+      behaviorRules: "Use calm language and encourage small repeatable routines.",
     },
     {
       slug: "ember-volt",
@@ -277,6 +431,8 @@ async function main() {
         "nutrition basics",
       ],
       blockedTopics: ["medical diagnosis", "supplement prescriptions", "legal advice"],
+      scopeDescription: "Motivates training consistency and practical fitness habits.",
+      behaviorRules: "Keep tone energetic, realistic, and progress-focused.",
     },
     {
       slug: "solstice-grey",
@@ -285,6 +441,8 @@ async function main() {
       scopeName: "Writing and communication coach",
       allowedTopics: ["writing clarity", "editing", "story structure", "presentation messaging"],
       blockedTopics: ["legal advice", "medical advice", "investment advice"],
+      scopeDescription: "Improves writing clarity and communication outcomes.",
+      behaviorRules: "Prefer clear examples, edits, and concise structure.",
     },
     {
       slug: "mira-loop",
@@ -293,6 +451,8 @@ async function main() {
       scopeName: "Learning strategy mentor",
       allowedTopics: ["study plans", "learning systems", "knowledge retention", "concept breakdowns"],
       blockedTopics: ["medical diagnosis", "legal advice", "trading and investments"],
+      scopeDescription: "Improves study systems and retention with practical routines.",
+      behaviorRules: "Use simple learning frameworks and summarize key points.",
     },
     {
       slug: "saffron-chef",
@@ -301,6 +461,8 @@ async function main() {
       scopeName: "Food and meal planning specialist",
       allowedTopics: ["recipes", "meal prep", "nutrition planning", "ingredient swaps"],
       blockedTopics: ["legal advice", "investment advice", "medical diagnosis"],
+      scopeDescription: "Designs practical meal plans and adaptable recipe choices.",
+      behaviorRules: "Keep suggestions realistic for busy schedules.",
     },
     {
       slug: "atlas-budget",
@@ -309,6 +471,8 @@ async function main() {
       scopeName: "Personal budgeting and saving guide",
       allowedTopics: ["budget setup", "expense tracking", "saving goals", "debt payoff strategies"],
       blockedTopics: ["stock picks", "tax/legal advice", "medical guidance"],
+      scopeDescription: "Builds budgeting systems and consistent saving behaviors.",
+      behaviorRules: "Use plain language and monthly action checkpoints.",
     },
     {
       slug: "luna-language",
@@ -317,6 +481,8 @@ async function main() {
       scopeName: "Language learning coach",
       allowedTopics: ["vocabulary practice", "grammar basics", "conversation drills", "study routines"],
       blockedTopics: ["legal advice", "medical advice", "financial investing"],
+      scopeDescription: "Supports daily language practice and confidence building.",
+      behaviorRules: "Keep sessions interactive and progressive.",
     },
     {
       slug: "pixel-builder",
@@ -325,6 +491,8 @@ async function main() {
       scopeName: "Web frontend development helper",
       allowedTopics: ["html", "css", "react", "nextjs", "ui debugging"],
       blockedTopics: ["medical diagnosis", "legal advice", "investment recommendations"],
+      scopeDescription: "Helps with frontend build/debug workflows.",
+      behaviorRules: "Return practical implementation guidance and concise code examples.",
     },
     {
       slug: "zen-parent",
@@ -333,6 +501,8 @@ async function main() {
       scopeName: "Parenting routine and communication support",
       allowedTopics: ["daily routines", "child communication", "home organization", "positive habits"],
       blockedTopics: ["clinical therapy", "medical diagnosis", "legal custody advice"],
+      scopeDescription: "Supports family routines and positive communication habits.",
+      behaviorRules: "Keep tone empathetic and routine-focused.",
     },
   ];
 
@@ -362,28 +532,35 @@ async function main() {
         personaId: persona.id,
         tagline: p.tagline,
         description: `Phase 1 seed persona: ${p.name}.`,
-        systemPrompt: `You are ${p.name}, a persona on Phase 1. Be helpful, safe, and concise.`,
+        systemPrompt:
+          p.systemPrompt ?? `You are ${p.name}, a persona on Phase 1. Be helpful, safe, and concise.`,
         scopeName: p.scopeName,
-        scopeDescription: `${p.name} should stay focused on ${p.scopeName.toLowerCase()}.`,
+        scopeDescription:
+          p.scopeDescription ?? `${p.name} should stay focused on ${p.scopeName.toLowerCase()}.`,
         allowedTopics: p.allowedTopics,
         blockedTopics: p.blockedTopics,
         behaviorRules:
+          p.behaviorRules ??
           "Stay in persona scope. If the user asks outside scope, acknowledge limits and redirect to the persona specialty.",
-        feedData: { starterTips: p.allowedTopics.slice(0, 3) },
-        agentConfig: { model: "gpt-4o-mini", temperature: 0.7 },
+        feedData: p.feedData ?? { starterTips: p.allowedTopics.slice(0, 3) },
+        agentConfig: { model: "local-default", temperature: 0.7 },
         voiceConfig: { provider: "mock", preset: "neutral" },
       },
       update: {
         tagline: p.tagline,
         description: `Phase 1 seed persona: ${p.name}.`,
-        systemPrompt: `You are ${p.name}, a persona on Phase 1. Be helpful, safe, and concise.`,
+        systemPrompt:
+          p.systemPrompt ?? `You are ${p.name}, a persona on Phase 1. Be helpful, safe, and concise.`,
         scopeName: p.scopeName,
-        scopeDescription: `${p.name} should stay focused on ${p.scopeName.toLowerCase()}.`,
+        scopeDescription:
+          p.scopeDescription ?? `${p.name} should stay focused on ${p.scopeName.toLowerCase()}.`,
         allowedTopics: p.allowedTopics,
         blockedTopics: p.blockedTopics,
         behaviorRules:
+          p.behaviorRules ??
           "Stay in persona scope. If the user asks outside scope, acknowledge limits and redirect to the persona specialty.",
-        feedData: { starterTips: p.allowedTopics.slice(0, 3) },
+        feedData: p.feedData ?? { starterTips: p.allowedTopics.slice(0, 3) },
+        agentConfig: { model: "local-default", temperature: 0.7 },
       },
     });
   }

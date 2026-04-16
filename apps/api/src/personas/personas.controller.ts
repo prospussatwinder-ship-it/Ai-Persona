@@ -7,7 +7,6 @@ import {
   Param,
   Patch,
   Post,
-  Put,
   Req,
   UseGuards,
 } from "@nestjs/common";
@@ -53,39 +52,6 @@ export class PersonasController {
   @Get("users/me/persona-access")
   listMyPersonaAccess(@Req() req: Authed) {
     return this.personaContext.listUserAccessiblePersonas(req.user.sub);
-  }
-
-  @UseGuards(AuthGuard("jwt"))
-  @Get("personas/:slug/training")
-  async getMyTraining(@Req() req: Authed, @Param("slug") slug: string) {
-    const persona = await this.personaContext.resolvePersonaForUserBySlug(
-      req.user.sub,
-      slug.toLowerCase()
-    );
-    return {
-      persona: { id: persona.id, slug: persona.slug, name: persona.name },
-      deprecated: true,
-      mode: "automatic-learning",
-      message:
-        "Manual persona training fields are deprecated. This persona now adapts automatically from chat history.",
-    };
-  }
-
-  @UseGuards(AuthGuard("jwt"))
-  @Put("personas/:slug/training")
-  async upsertMyTraining(@Req() req: Authed, @Param("slug") slug: string) {
-    const persona = await this.personaContext.resolvePersonaForUserBySlug(
-      req.user.sub,
-      slug.toLowerCase()
-    );
-    return {
-      ok: true,
-      deprecated: true,
-      persona: { id: persona.id, slug: persona.slug, name: persona.name },
-      mode: "automatic-learning",
-      message:
-        "Manual training updates are disabled. Adaptive learning is updated automatically from conversation behavior.",
-    };
   }
 
   @UseGuards(AuthGuard("jwt"))

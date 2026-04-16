@@ -8,7 +8,6 @@ import { ScheduledPostRepository } from "./scheduled-post.repository";
 import { SubscriptionRepository } from "./subscription.repository";
 import { UserRepository } from "./user.repository";
 import { UserPersonaAccessRepository } from "./user-persona-access.repository";
-import { UserPersonaTrainingRepository } from "./user-persona-training.repository";
 
 @Global()
 @Module({
@@ -22,7 +21,6 @@ import { UserPersonaTrainingRepository } from "./user-persona-training.repositor
     PurchaseRepository,
     ScheduledPostRepository,
     UserPersonaAccessRepository,
-    UserPersonaTrainingRepository,
   ],
   exports: [
     UserRepository,
@@ -34,7 +32,6 @@ import { UserPersonaTrainingRepository } from "./user-persona-training.repositor
     PurchaseRepository,
     ScheduledPostRepository,
     UserPersonaAccessRepository,
-    UserPersonaTrainingRepository,
   ],
 })
 export class RepositoriesModule {}

@@ -106,6 +106,9 @@ export class MemoryService {
     assistantText: string;
     history: Array<{ role: string; content: string }>;
   }) {
+    const existing = await this.listStructured(input.userId, input.personaId, 48);
+    const existingByKey = new Map(existing.map((item) => [item.memoryKey ?? "", item.content]));
+
     await this.extractAndStoreStableFacts({
       userId: input.userId,
       personaId: input.personaId,
@@ -114,8 +117,8 @@ export class MemoryService {
     });
 
     const topicKeywords = this.extractKeywords(input.userText);
-    if (topicKeywords.length > 0) {
-      await this.upsertStructured({
+    if (this.shouldStoreTopicKeywords(input.userText, topicKeywords)) {
+      await this.upsertStructuredIfChanged(existingByKey, {
         userId: input.userId,
         personaId: input.personaId,
         conversationId: input.conversationId,
@@ -129,7 +132,7 @@ export class MemoryService {
     }
 
     const tone = this.detectTonePreference(input.userText, input.history);
-    await this.upsertStructured({
+    await this.upsertStructuredIfChanged(existingByKey, {
       userId: input.userId,
       personaId: input.personaId,
       conversationId: input.conversationId,
@@ -142,7 +145,7 @@ export class MemoryService {
     });
 
     const intent = this.detectIntentPattern(input.userText);
-    await this.upsertStructured({
+    await this.upsertStructuredIfChanged(existingByKey, {
       userId: input.userId,
       personaId: input.personaId,
       conversationId: input.conversationId,
@@ -155,7 +158,7 @@ export class MemoryService {
     });
 
     const summary = this.buildRecentSummary(input.userText, input.assistantText);
-    await this.upsertStructured({
+    await this.upsertStructuredIfChanged(existingByKey, {
       userId: input.userId,
       personaId: input.personaId,
       conversationId: input.conversationId,
@@ -166,6 +169,35 @@ export class MemoryService {
       source: MemorySource.chat_summary,
       metadata: { from: "learnFromTurn", kind: "summary" },
     });
+
+    const rollingSummary = this.buildRollingSummary(input.userText, input.assistantText, input.history);
+    if (rollingSummary) {
+      await this.upsertStructuredIfChanged(existingByKey, {
+        userId: input.userId,
+        personaId: input.personaId,
+        conversationId: input.conversationId,
+        memoryKey: "summary.long_term",
+        memoryType: "long_term_summary",
+        content: rollingSummary,
+        confidenceScore: 0.76,
+        source: MemorySource.chat_summary,
+        metadata: { from: "learnFromTurn", kind: "rolling-summary" },
+      });
+    }
+  }
+
+  private async upsertStructuredIfChanged(
+    existingByKey: Map<string, string>,
+    input: Parameters<MemoryService["upsertStructured"]>[0]
+  ) {
+    const current = existingByKey.get(input.memoryKey);
+    const normalizedCurrent = current?.trim().toLowerCase();
+    const normalizedNext = input.content.trim().toLowerCase();
+    if (normalizedCurrent && normalizedCurrent === normalizedNext) {
+      return;
+    }
+    await this.upsertStructured(input);
+    existingByKey.set(input.memoryKey, input.content);
   }
 
   private extractKeywords(text: string): string[] {
@@ -176,6 +208,12 @@ export class MemoryService {
       .filter((w) => w.length >= 4)
       .filter((w) => !["this", "that", "with", "from", "have", "want", "need", "please"].includes(w));
     return Array.from(new Set(words)).slice(0, 6);
+  }
+
+  private shouldStoreTopicKeywords(userText: string, keywords: string[]) {
+    if (keywords.length < 2) return false;
+    if (userText.trim().length < 20) return false;
+    return true;
   }
 
   private detectTonePreference(userText: string, history: Array<{ role: string; content: string }>): string {
@@ -199,5 +237,23 @@ export class MemoryService {
     const u = userText.trim().replace(/\s+/g, " ").slice(0, 180);
     const a = assistantText.trim().replace(/\s+/g, " ").slice(0, 180);
     return `User asked: "${u}". Assistant responded with guidance: "${a}".`;
+  }
+
+  private buildRollingSummary(
+    userText: string,
+    assistantText: string,
+    history: Array<{ role: string; content: string }>
+  ): string | null {
+    const userTurns = history.filter((item) => item.role === "user").length + 1;
+    if (userTurns % 5 !== 0) return null;
+
+    const longTermTopics = this.extractKeywords(
+      `${history
+        .slice(-8)
+        .map((item) => item.content)
+        .join(" ")} ${userText}`
+    );
+    const assistantSnippet = assistantText.replace(/\s+/g, " ").slice(0, 140);
+    return `Long-term pattern update: user focuses on ${longTermTopics.join(", ") || "general topics"} and responds well to guidance like "${assistantSnippet}".`;
   }
 }

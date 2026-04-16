@@ -19,9 +19,11 @@ export class AiUsageService {
   async assertCanUseAi(userId: string, role: UserRole): Promise<{
     subscriptionId: string | null;
     aiLimit: number;
+    planSlug?: string | null;
+    featureConfig?: Record<string, unknown>;
   }> {
     if (this.rbac.bypassesAiQuota(role)) {
-      return { subscriptionId: null, aiLimit: Number.MAX_SAFE_INTEGER };
+      return { subscriptionId: null, aiLimit: Number.MAX_SAFE_INTEGER, planSlug: null };
     }
 
     const sub = await this.prisma.userPlanSubscription.findFirst({
@@ -44,29 +46,52 @@ export class AiUsageService {
       );
     }
 
-    const limit = sub.plan.aiRequestLimit;
+    const featureConfig = (sub.plan.featureConfig ?? {}) as {
+      dailyLimit?: unknown;
+      monthlyLimit?: unknown;
+    };
+    const limit = Number(featureConfig.monthlyLimit ?? sub.plan.aiRequestLimit);
     if (limit <= 0) {
       throw new ForbiddenException("AI usage is disabled for your current plan.");
     }
 
-    const start = new Date();
-    start.setDate(start.getDate() - 30);
-    const used = await this.prisma.aiUsageLog.count({
+    const rollingStart = new Date();
+    rollingStart.setDate(rollingStart.getDate() - 30);
+    const usedRolling = await this.prisma.aiUsageLog.count({
       where: {
         userId,
         featureName: CHAT_FEATURE,
-        createdAt: { gte: start },
+        createdAt: { gte: rollingStart },
         status: "ok",
       },
     });
 
-    if (used >= limit) {
+    if (usedRolling >= limit) {
       throw new ForbiddenException(
         "AI request limit reached for your billing period. Upgrade or wait for renewal."
       );
     }
 
-    return { subscriptionId: sub.id, aiLimit: limit };
+    const dailyLimit = Number(featureConfig.dailyLimit ?? 0);
+    if (dailyLimit > 0) {
+      const dayStart = new Date();
+      dayStart.setHours(0, 0, 0, 0);
+      const usedDaily = await this.prisma.aiUsageLog.count({
+        where: {
+          userId,
+          featureName: CHAT_FEATURE,
+          createdAt: { gte: dayStart },
+          status: "ok",
+        },
+      });
+      if (usedDaily >= dailyLimit) {
+        throw new ForbiddenException(
+          "Daily chat limit reached for your package. Upgrade package or try again tomorrow."
+        );
+      }
+    }
+
+    return { subscriptionId: sub.id, aiLimit: limit, planSlug: sub.plan.slug, featureConfig };
   }
 
   async recordSuccess(input: {

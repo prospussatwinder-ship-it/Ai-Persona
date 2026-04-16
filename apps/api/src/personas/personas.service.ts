@@ -53,7 +53,7 @@ export class PersonasService {
           behaviorRules: dto.behaviorRules,
           feedData: dto.feedData as Prisma.InputJsonValue | undefined,
           avatarUrl: dto.avatarUrl,
-          agentConfig: { model: "gpt-4o-mini", temperature: 0.7 },
+          agentConfig: { model: "local-default", temperature: 0.7 },
           voiceConfig: { provider: "mock" },
         },
       },

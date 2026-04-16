@@ -6,13 +6,18 @@ import { SubscriptionsService } from "./subscriptions.service";
 type Authed = Request & { user: { sub: string } };
 
 @Controller("subscriptions")
-@UseGuards(AuthGuard("jwt"))
 export class SubscriptionsController {
   constructor(private readonly subscriptions: SubscriptionsService) {}
 
+  @Get("plans")
+  async listPlans() {
+    const plans = await this.subscriptions.listCatalogPlans();
+    return { plans };
+  }
+
+  @UseGuards(AuthGuard("jwt"))
   @Get()
   async list(@Req() req: Authed) {
-    const subscriptions = await this.subscriptions.listForUser(req.user.sub);
-    return { subscriptions };
+    return this.subscriptions.getOverviewForUser(req.user.sub);
   }
 }

@@ -1,9 +1,11 @@
 import { randomUUID } from "crypto";
 import { Injectable } from "@nestjs/common";
 import type { MemorySource, Prisma } from "@prisma/client";
+import { EMBEDDING_DIM } from "../common/embedding.util";
 import { PrismaService } from "../prisma/prisma.service";
 
-export const MEMORY_EMBEDDING_DIM = 1536;
+/** Re-export for callers that already import from here */
+export const MEMORY_EMBEDDING_DIM = EMBEDDING_DIM;
 
 @Injectable()
 export class MemoryRepository {

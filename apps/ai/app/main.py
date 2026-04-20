@@ -24,6 +24,12 @@ OLLAMA_CHAT_MODEL = os.getenv("OLLAMA_CHAT_MODEL", "llama3.1:8b-instruct-q4_K_M"
 OLLAMA_EMBED_MODEL = os.getenv("OLLAMA_EMBED_MODEL", "nomic-embed-text")
 AI_TIMEOUT_SECONDS = float(os.getenv("AI_TIMEOUT_SECONDS", "90"))
 
+# Self-hosted OpenAI-compatible HTTP API (LM Studio, vLLM, LiteLLM proxy, etc.) — not vendor OpenAI.
+LOCAL_LLM_COMPAT_BASE_URL = os.getenv("LOCAL_LLM_COMPAT_BASE_URL", "").strip().rstrip("/")
+LOCAL_LLM_COMPAT_API_KEY = os.getenv("LOCAL_LLM_COMPAT_API_KEY", "").strip()
+LOCAL_LLM_COMPAT_CHAT_MODEL = os.getenv("LOCAL_LLM_COMPAT_CHAT_MODEL", "").strip()
+LOCAL_LLM_COMPAT_EMBED_MODEL = os.getenv("LOCAL_LLM_COMPAT_EMBED_MODEL", "").strip()
+
 
 def _check_key(x_internal_key: str | None):
     if x_internal_key != INTERNAL_KEY:
@@ -86,6 +92,63 @@ async def ollama_embed(text: str) -> list[float]:
     return [float(x) for x in emb]
 
 
+async def openai_compat_chat(system: str, messages: list[dict], model: str | None, temperature: float) -> str:
+    if not LOCAL_LLM_COMPAT_BASE_URL:
+        raise RuntimeError("LOCAL_LLM_COMPAT_BASE_URL not configured")
+    chat_model = (model or LOCAL_LLM_COMPAT_CHAT_MODEL or OLLAMA_CHAT_MODEL).strip()
+    normalized_msgs: list[dict[str, str]] = [
+        {"role": "system", "content": system},
+        *[
+            {"role": str(item.get("role", "user")), "content": str(item.get("content", "")).strip()}
+            for item in _trim_messages(messages, 24)
+            if str(item.get("content", "")).strip()
+        ],
+    ]
+    headers: dict[str, str] = {"Content-Type": "application/json"}
+    if LOCAL_LLM_COMPAT_API_KEY:
+        headers["Authorization"] = f"Bearer {LOCAL_LLM_COMPAT_API_KEY}"
+    payload = {
+        "model": chat_model,
+        "messages": normalized_msgs,
+        "temperature": float(max(0.0, min(temperature, 1.5))),
+    }
+    url = f"{LOCAL_LLM_COMPAT_BASE_URL}/chat/completions"
+    async with httpx.AsyncClient(timeout=AI_TIMEOUT_SECONDS) as client:
+        res = await client.post(url, json=payload, headers=headers)
+        res.raise_for_status()
+        data: dict[str, Any] = res.json()
+    choices = data.get("choices")
+    if not isinstance(choices, list) or not choices:
+        raise RuntimeError("compat chat: missing choices")
+    msg = choices[0].get("message", {})
+    content = str(msg.get("content", "")).strip()
+    if not content:
+        raise RuntimeError("compat chat: empty content")
+    return content
+
+
+async def openai_compat_embed(text: str) -> list[float]:
+    if not LOCAL_LLM_COMPAT_BASE_URL:
+        raise RuntimeError("LOCAL_LLM_COMPAT_BASE_URL not configured")
+    embed_model = (LOCAL_LLM_COMPAT_EMBED_MODEL or OLLAMA_EMBED_MODEL).strip()
+    headers: dict[str, str] = {"Content-Type": "application/json"}
+    if LOCAL_LLM_COMPAT_API_KEY:
+        headers["Authorization"] = f"Bearer {LOCAL_LLM_COMPAT_API_KEY}"
+    payload = {"model": embed_model, "input": text}
+    url = f"{LOCAL_LLM_COMPAT_BASE_URL}/embeddings"
+    async with httpx.AsyncClient(timeout=AI_TIMEOUT_SECONDS) as client:
+        res = await client.post(url, json=payload, headers=headers)
+        res.raise_for_status()
+        data: dict[str, Any] = res.json()
+    rows = data.get("data")
+    if not isinstance(rows, list) or not rows:
+        raise RuntimeError("compat embed: missing data")
+    emb = rows[0].get("embedding")
+    if not isinstance(emb, list) or not emb:
+        raise RuntimeError("compat embed: missing vector")
+    return [float(x) for x in emb]
+
+
 async def ollama_chat(system: str, messages: list[dict], model: str | None, temperature: float) -> str:
     chat_model = (model or OLLAMA_CHAT_MODEL or CHAT_MODEL).strip() or OLLAMA_CHAT_MODEL
     normalized_msgs: list[dict[str, str]] = [
@@ -116,18 +179,40 @@ async def ollama_chat(system: str, messages: list[dict], model: str | None, temp
 
 
 async def embed_text(text: str) -> list[float]:
-    if AI_EMBED_PROVIDER == "ollama":
+    if AI_EMBED_PROVIDER == "openai_compat":
+        try:
+            return await openai_compat_embed(text)
+        except Exception:
+            pass
+    if AI_EMBED_PROVIDER == "ollama" or AI_EMBED_PROVIDER in ("auto", ""):
         try:
             return await ollama_embed(text)
+        except Exception:
+            pass
+    if LOCAL_LLM_COMPAT_BASE_URL:
+        try:
+            return await openai_compat_embed(text)
         except Exception:
             pass
     return deterministic_embedding(text)
 
 
 async def complete_chat(system: str, messages: list[dict], model: str, temperature: float) -> str:
-    if AI_PROVIDER == "ollama":
+    if AI_PROVIDER == "openai_compat":
+        if LOCAL_LLM_COMPAT_BASE_URL:
+            try:
+                return await openai_compat_chat(system, messages, model, temperature)
+            except Exception:
+                pass
+        return local_fallback_reply(system, messages)
+    if AI_PROVIDER in ("ollama", "auto", ""):
         try:
             return await ollama_chat(system, messages, model, temperature)
+        except Exception:
+            pass
+    if LOCAL_LLM_COMPAT_BASE_URL:
+        try:
+            return await openai_compat_chat(system, messages, model, temperature)
         except Exception:
             pass
     return local_fallback_reply(system, messages)
@@ -269,6 +354,7 @@ def health():
         "embedProvider": AI_EMBED_PROVIDER,
         "chatModel": OLLAMA_CHAT_MODEL,
         "embedModel": OLLAMA_EMBED_MODEL,
+        "localLlmCompatConfigured": bool(LOCAL_LLM_COMPAT_BASE_URL),
     }
 
 

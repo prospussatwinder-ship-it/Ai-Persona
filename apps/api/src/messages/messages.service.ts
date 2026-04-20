@@ -66,6 +66,13 @@ export class MessagesService {
       history = history.slice(0, -1);
     }
 
+    const chronological = historyDesc.slice().reverse();
+    const recentExchange = chronological
+      .slice(-14)
+      .map((m) => `${m.role}: ${(m.content ?? "").replace(/\s+/g, " ").slice(0, 420)}`)
+      .join("\n")
+      .slice(0, 4500);
+
     const agentCfg = (conv.persona.profile?.agentConfig as { model?: string; temperature?: number }) ?? {};
     const assistantText = await this.ai.complete({
       system: promptContext.system,
@@ -97,6 +104,7 @@ export class MessagesService {
       userText: dto.content,
       assistantText,
       history: history.map((h) => ({ role: h.role, content: h.content })),
+      recentExchange,
     });
 
     void this.aiUsage.recordSuccess({

@@ -1,5 +1,6 @@
 import { Injectable, Logger } from "@nestjs/common";
 import axios from "axios";
+import { normalizeEmbeddingVector } from "../../common/embedding.util";
 import type { CompleteChatInput } from "../ai-client.service";
 import type { AiProvider } from "./ai-provider.interface";
 
@@ -23,7 +24,11 @@ export class LocalAiProvider implements AiProvider {
         { text },
         { headers: this.headers(), timeout: 30_000 }
       );
-      return res.data.embedding;
+      const raw = res.data.embedding;
+      if (!Array.isArray(raw) || raw.length === 0) {
+        return this.fallbackEmbedding(text);
+      }
+      return normalizeEmbeddingVector(raw.map((x) => Number(x)));
     } catch (e) {
       this.log.warn(`Local AI embed unavailable (${String(e)})`);
       return this.fallbackEmbedding(text);

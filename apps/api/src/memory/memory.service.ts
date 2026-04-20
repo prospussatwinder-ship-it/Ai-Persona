@@ -1,10 +1,18 @@
-import { Injectable } from "@nestjs/common";
+import { Injectable, Logger } from "@nestjs/common";
 import { MemorySource, Prisma } from "@prisma/client";
+import { AiClientService } from "../ai-client/ai-client.service";
+import { scheduleMemoryPostTurnJob } from "../jobs/memory-post-turn.job";
 import { MemoryRepository } from "../repositories/memory.repository";
 
 @Injectable()
 export class MemoryService {
-  constructor(private readonly memoryRepository: MemoryRepository) {}
+  private readonly log = new Logger(MemoryService.name);
+  private readonly runDeferred = scheduleMemoryPostTurnJob((p) => this.processDeferredPostTurn(p));
+
+  constructor(
+    private readonly memoryRepository: MemoryRepository,
+    private readonly ai: AiClientService
+  ) {}
 
   search(userId: string, personaId: string, embedding: number[], limit = 8) {
     return this.memoryRepository.searchSimilar(userId, personaId, embedding, limit);
@@ -51,53 +59,6 @@ export class MemoryService {
     });
   }
 
-  async extractAndStoreStableFacts(input: {
-    userId: string;
-    personaId: string;
-    conversationId: string;
-    userText: string;
-  }) {
-    const text = input.userText.trim();
-    if (!text) return;
-    const normalized = text.toLowerCase();
-    const extracted: Array<{
-      key: string;
-      type: string;
-      value: string;
-      confidence: number;
-    }> = [];
-
-    const pick = (re: RegExp, key: string, type: string, confidence = 0.75) => {
-      const m = normalized.match(re);
-      if (!m?.[1]) return;
-      extracted.push({ key, type, value: m[1].trim(), confidence });
-    };
-
-    pick(/\bi prefer ([^.!?\n]{2,120})/i, "preference.general", "preference");
-    pick(/\bi like ([^.!?\n]{2,120})/i, "likes.general", "preference", 0.68);
-    pick(/\bi (?:dislike|hate|avoid) ([^.!?\n]{2,120})/i, "dislikes.general", "dislike", 0.82);
-    pick(/\bi(?:'m| am) allergic to ([^.!?\n]{2,120})/i, "restriction.allergy", "restriction", 0.9);
-    pick(/\bmy goal is ([^.!?\n]{2,120})/i, "goal.primary", "goal", 0.88);
-    pick(/\bi want to ([^.!?\n]{2,120})/i, "goal.intent", "goal", 0.72);
-    pick(/\b(?:my )?protein target(?: is)? ([0-9]{2,4}\s?g)\b/i, "nutrition.protein_target", "target", 0.9);
-
-    if (extracted.length === 0) return;
-
-    for (const item of extracted) {
-      await this.upsertStructured({
-        userId: input.userId,
-        personaId: input.personaId,
-        conversationId: input.conversationId,
-        memoryKey: item.key,
-        memoryType: item.type,
-        content: item.value,
-        confidenceScore: item.confidence,
-        source: MemorySource.user_fact,
-        metadata: { extractedFrom: "chat", rawSnippet: text.slice(0, 220) },
-      });
-    }
-  }
-
   async learnFromTurn(input: {
     userId: string;
     personaId: string;
@@ -105,16 +66,10 @@ export class MemoryService {
     userText: string;
     assistantText: string;
     history: Array<{ role: string; content: string }>;
+    recentExchange: string;
   }) {
     const existing = await this.listStructured(input.userId, input.personaId, 48);
     const existingByKey = new Map(existing.map((item) => [item.memoryKey ?? "", item.content]));
-
-    await this.extractAndStoreStableFacts({
-      userId: input.userId,
-      personaId: input.personaId,
-      conversationId: input.conversationId,
-      userText: input.userText,
-    });
 
     const topicKeywords = this.extractKeywords(input.userText);
     if (this.shouldStoreTopicKeywords(input.userText, topicKeywords)) {
@@ -184,6 +139,161 @@ export class MemoryService {
         metadata: { from: "learnFromTurn", kind: "rolling-summary" },
       });
     }
+
+    if (process.env.MEMORY_DEFERRED_EXTRACTION !== "false") {
+      this.runDeferred({
+        userId: input.userId,
+        personaId: input.personaId,
+        conversationId: input.conversationId,
+        userText: input.userText,
+        assistantText: input.assistantText,
+        recentExchange: input.recentExchange,
+      });
+    }
+  }
+
+  /** Semantic RAG row + structured facts from the local/self-hosted model (not regex). */
+  private async processDeferredPostTurn(payload: {
+    userId: string;
+    personaId: string;
+    conversationId: string;
+    userText: string;
+    assistantText: string;
+    recentExchange: string;
+  }) {
+    await this.storeSemanticTurnSnippet(payload);
+    await this.extractStructuredFactsWithModel(payload);
+  }
+
+  private async storeSemanticTurnSnippet(payload: {
+    userId: string;
+    personaId: string;
+    conversationId: string;
+    userText: string;
+    assistantText: string;
+  }) {
+    const u = payload.userText.trim().replace(/\s+/g, " ").slice(0, 600);
+    const a = payload.assistantText.trim().replace(/\s+/g, " ").slice(0, 600);
+    const line = `User: ${u}\nAssistant: ${a}`;
+    try {
+      const embedding = await this.ai.embed(line);
+      await this.insertVectorRow(
+        payload.userId,
+        payload.personaId,
+        payload.conversationId,
+        MemorySource.chat_summary,
+        line,
+        embedding,
+        { kind: "turn_snippet" }
+      );
+    } catch (e) {
+      this.log.warn(`Semantic memory insert skipped: ${String(e)}`);
+    }
+  }
+
+  private async extractStructuredFactsWithModel(payload: {
+    userId: string;
+    personaId: string;
+    conversationId: string;
+    userText: string;
+    recentExchange: string;
+  }) {
+    const system = `You extract durable user-specific preferences for a personal AI assistant memory store.
+Return ONLY a JSON array (no markdown fences) of up to 5 objects with this exact shape:
+[{"memoryKey":"snake.case.id","memoryType":"preference|goal|restriction|fact","content":"short plain text","confidence":0.5}]
+Rules:
+- Only include stable facts the user states about themselves (goals, allergies, budget, schedule, likes/dislikes).
+- Omit chit-chat, hypotheticals, and third-party-only facts.
+- memoryKey must be unique-ish (e.g. preference.coffee, goal.fat_loss).
+- If nothing is worth storing, return []`;
+
+    const userBlock = `Recent conversation (most recent last, truncated):\n${payload.recentExchange.slice(0, 3500)}\n\nLatest user message:\n${payload.userText.slice(0, 2000)}`;
+
+    let raw: string;
+    try {
+      raw = await this.ai.complete({
+        system,
+        model: process.env.MEMORY_EXTRACTION_MODEL,
+        temperature: 0.15,
+        messages: [{ role: "user", content: userBlock }],
+      });
+    } catch (e) {
+      this.log.warn(`Model memory extraction failed: ${String(e)}`);
+      return;
+    }
+
+    const items = this.parseMemoryExtractionJson(raw);
+    for (const item of items) {
+      if (!item.memoryKey || !item.content) continue;
+      const confidence = typeof item.confidence === "number" ? item.confidence : 0.7;
+      try {
+        await this.upsertStructured({
+          userId: payload.userId,
+          personaId: payload.personaId,
+          conversationId: payload.conversationId,
+          memoryKey: String(item.memoryKey).slice(0, 120),
+          memoryType: String(item.memoryType || "fact").slice(0, 80),
+          content: String(item.content).slice(0, 2000),
+          confidenceScore: Math.min(1, Math.max(0, confidence)),
+          source: MemorySource.user_fact,
+          metadata: { from: "model_extract", model: true },
+        });
+      } catch (e) {
+        this.log.warn(`Memory upsert failed for key ${item.memoryKey}: ${String(e)}`);
+      }
+    }
+  }
+
+  private parseMemoryExtractionJson(raw: string): Array<{
+    memoryKey?: string;
+    memoryType?: string;
+    content?: string;
+    confidence?: number;
+  }> {
+    let t = raw.trim();
+    if (t.startsWith("```")) {
+      t = t.replace(/^```[a-zA-Z]*\s*/m, "").replace(/```\s*$/m, "").trim();
+    }
+
+    const candidates = [t];
+    const extracted = this.extractLikelyJsonBlock(t);
+    if (extracted && extracted !== t) candidates.push(extracted);
+
+    for (const candidate of candidates) {
+      try {
+        const parsed = JSON.parse(candidate) as unknown;
+        const rows = Array.isArray(parsed) ? parsed : parsed && typeof parsed === "object" ? [parsed] : [];
+        if (rows.length === 0) continue;
+        return rows.filter((x) => x && typeof x === "object") as Array<{
+          memoryKey?: string;
+          memoryType?: string;
+          content?: string;
+          confidence?: number;
+        }>;
+      } catch {
+        // keep trying fallback candidate
+      }
+    }
+
+    // Non-JSON model output is expected occasionally (worker fallback / small local models).
+    this.log.debug("Memory extraction returned non-JSON output; skipping model facts for this turn");
+    return [];
+  }
+
+  private extractLikelyJsonBlock(text: string): string | null {
+    const firstArray = text.indexOf("[");
+    const lastArray = text.lastIndexOf("]");
+    if (firstArray !== -1 && lastArray !== -1 && lastArray > firstArray) {
+      return text.slice(firstArray, lastArray + 1).trim();
+    }
+
+    const firstObj = text.indexOf("{");
+    const lastObj = text.lastIndexOf("}");
+    if (firstObj !== -1 && lastObj !== -1 && lastObj > firstObj) {
+      return text.slice(firstObj, lastObj + 1).trim();
+    }
+
+    return null;
   }
 
   private async upsertStructuredIfChanged(

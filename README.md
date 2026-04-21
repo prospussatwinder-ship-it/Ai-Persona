@@ -100,6 +100,83 @@ Open `http://localhost:3002`.
 | Next | `GET /api/health` |
 | FastAPI | `GET /health` |
 
+## Current full process (chat + media)
+
+Use this order for the current project state:
+
+1. Start infra (Postgres + Redis).
+2. Start AI chat worker (`apps/ai`).
+3. Start media worker (`services/media-worker`).
+4. Start API (`apps/api`).
+5. Start web (`apps/web`).
+
+### Recommended local ports
+
+- Web: `3002`
+- API: `3001`
+- AI worker: `8002` (or `8001`, but must match API env)
+- Media worker: `8003`
+- Ollama: `11434`
+
+### Required env alignment
+
+- `apps/api/.env`
+  - `AI_SERVICE_URL=http://127.0.0.1:8002` (or your AI worker port)
+  - `MEDIA_SERVICE_URL=http://127.0.0.1:8003`
+- `apps/ai/.env`
+  - `AI_PROVIDER=ollama`
+  - `AI_EMBED_PROVIDER=ollama`
+  - `OLLAMA_BASE_URL=http://127.0.0.1:11434`
+  - `OLLAMA_CHAT_MODEL=tinyllama` (safe on lower-memory machines)
+  - `OLLAMA_EMBED_MODEL=nomic-embed-text`
+
+### Start commands (Windows PowerShell)
+
+```powershell
+# 1) API
+npm run dev:api
+
+# 2) Web
+npm run dev:web
+
+# 3) AI worker
+cd apps/ai
+.\.venv\Scripts\python.exe -m uvicorn app.main:app --host 0.0.0.0 --port 8002
+
+# 4) Media worker
+cd services/media-worker
+$env:PYTHONPATH='d:\xampp-8.2-new\htdocs\Ai-Persona\services\media-worker'
+& "d:\xampp-8.2-new\htdocs\Ai-Persona\apps\ai\.venv\Scripts\python.exe" -m uvicorn app.main:app --host 0.0.0.0 --port 8003
+```
+
+### Features currently enabled
+
+- Persona chat with local/self-hosted model
+- Per-user/persona memory updates
+- Live typing-style assistant response in web chat UI
+- Reply-to-message in chat
+- Delete chat conversation
+- Media request detection from prompt text (`image/images/video/videos`)
+- Media preview rendering in chat (`metadata.media`)
+
+### Media behavior right now
+
+- Media worker currently returns a local placeholder SVG image URL for image requests.
+- This confirms full media flow (API -> worker -> UI render) is working.
+- Replace media worker provider logic later for real photorealistic image/video generation.
+
+### Quick troubleshooting
+
+- **Images not showing**:
+  - check API `/v1/health`
+  - check media worker `/health` on `8003`
+  - send a new message with words like `image` or `images`
+- **Port already in use** (`WinError 10048` / `EADDRINUSE`):
+  - stop old process on that port, then restart service
+- **Fallback text instead of dynamic answer**:
+  - verify Ollama is running and model fits available RAM
+  - verify `AI_SERVICE_URL` points to active AI worker
+
 ## Lint and format
 
 ```bash

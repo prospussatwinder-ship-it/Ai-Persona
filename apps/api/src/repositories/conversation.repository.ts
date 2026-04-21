@@ -38,4 +38,10 @@ export class ConversationRepository {
       data: { updatedAt: new Date() },
     });
   }
+
+  deleteForUser(userId: string, conversationId: string) {
+    return this.prisma.conversation.deleteMany({
+      where: { id: conversationId, userId },
+    });
+  }
 }

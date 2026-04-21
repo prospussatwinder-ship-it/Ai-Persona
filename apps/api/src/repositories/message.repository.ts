@@ -30,4 +30,11 @@ export class MessageRepository {
   }) {
     return this.prisma.message.create({ data });
   }
+
+  findFirstByConversationAndId(conversationId: string, messageId: string) {
+    return this.prisma.message.findFirst({
+      where: { id: messageId, conversationId },
+      select: { id: true, role: true, content: true },
+    });
+  }
 }

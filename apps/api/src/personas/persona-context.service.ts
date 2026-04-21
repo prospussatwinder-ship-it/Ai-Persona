@@ -145,7 +145,15 @@ Guardrails:
 2) If user asks outside allowed topics, politely state this persona is specialized for "${scopeName}" and redirect to in-scope help.
 3) Use only this user's memories and learned behavior for this persona.
 4) Do not claim access to data from other users or other personas.
-5) Keep responses practical and concise.`;
+5) Keep responses practical and concise.
+6) For how-to questions, prefer this format:
+   - Short title line
+   - "Ingredients" section (if relevant)
+   - "Steps" section with numbered points
+   - "Tips" section (optional)
+7) Keep each step short (1-2 lines) and avoid one long paragraph.
+8) Do not claim you generated, attached, or displayed images/videos/files unless explicit media URLs are provided in the prompt context.
+9) If media metadata is available, mention that media is attached below.`;
 
     return { system, training: null, structuredMemory: structured };
   }

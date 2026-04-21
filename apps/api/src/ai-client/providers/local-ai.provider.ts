@@ -17,12 +17,22 @@ export class LocalAiProvider implements AiProvider {
     return { "X-Internal-Key": process.env.AI_INTERNAL_KEY ?? "dev-internal" };
   }
 
+  private embedTimeoutMs() {
+    const v = Number(process.env.AI_EMBED_TIMEOUT_MS ?? 30_000);
+    return Number.isFinite(v) && v > 0 ? v : 30_000;
+  }
+
+  private chatTimeoutMs() {
+    const v = Number(process.env.AI_CHAT_TIMEOUT_MS ?? 120_000);
+    return Number.isFinite(v) && v > 0 ? v : 120_000;
+  }
+
   async embed(text: string): Promise<number[]> {
     try {
       const res = await axios.post<{ embedding: number[] }>(
         `${this.baseUrl()}/memory/store`,
         { text },
-        { headers: this.headers(), timeout: 30_000 }
+        { headers: this.headers(), timeout: this.embedTimeoutMs() }
       );
       const raw = res.data.embedding;
       if (!Array.isArray(raw) || raw.length === 0) {
@@ -39,7 +49,7 @@ export class LocalAiProvider implements AiProvider {
     try {
       const res = await axios.post<{ text: string }>(`${this.baseUrl()}/chat/respond`, input, {
         headers: this.headers(),
-        timeout: 60_000,
+        timeout: this.chatTimeoutMs(),
       });
       const text = (res.data.text ?? "").trim();
       if (!text) return this.localFallbackReply(input.system, input.messages.at(-1)?.content ?? "");

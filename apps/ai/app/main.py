@@ -150,7 +150,10 @@ async def openai_compat_embed(text: str) -> list[float]:
 
 
 async def ollama_chat(system: str, messages: list[dict], model: str | None, temperature: float) -> str:
-    chat_model = (model or OLLAMA_CHAT_MODEL or CHAT_MODEL).strip() or OLLAMA_CHAT_MODEL
+    requested_model = (model or "").strip()
+    if requested_model.lower() in {"", "local-default", "default", "auto"}:
+        requested_model = ""
+    chat_model = (requested_model or OLLAMA_CHAT_MODEL or CHAT_MODEL).strip() or OLLAMA_CHAT_MODEL
     normalized_msgs: list[dict[str, str]] = [
         {"role": "system", "content": system},
         *[

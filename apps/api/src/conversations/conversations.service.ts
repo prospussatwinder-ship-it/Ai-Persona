@@ -31,4 +31,10 @@ export class ConversationsService {
     if (!row) throw new NotFoundException();
     return row;
   }
+
+  async remove(userId: string, conversationId: string) {
+    const res = await this.conversations.deleteForUser(userId, conversationId);
+    if (!res.count) throw new NotFoundException();
+    return { ok: true };
+  }
 }

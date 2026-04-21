@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Req, UseGuards } from "@nestjs/common";
+import { Body, Controller, Delete, Get, Param, Post, Req, UseGuards } from "@nestjs/common";
 import { AuthGuard } from "@nestjs/passport";
 import type { Request } from "express";
 import { CreateConversationDto } from "./dto/create-conversation.dto";
@@ -25,5 +25,10 @@ export class ConversationsController {
   @Get(":id")
   getOne(@Req() req: Authed, @Param("id") id: string) {
     return this.conversations.getOne(req.user.sub, id);
+  }
+
+  @Delete(":id")
+  remove(@Req() req: Authed, @Param("id") id: string) {
+    return this.conversations.remove(req.user.sub, id);
   }
 }

@@ -5,6 +5,7 @@ import { AiClientService } from "../ai-client/ai-client.service";
 import { AnalyticsService } from "../analytics/analytics.service";
 import { AuditService } from "../audit/audit.service";
 import { ComplianceService } from "../compliance/compliance.service";
+import { MediaService } from "../media/media.service";
 import { MemoryService } from "../memory/memory.service";
 import { PersonaContextService } from "../personas/persona-context.service";
 import { ConversationRepository } from "../repositories/conversation.repository";
@@ -23,6 +24,7 @@ export class MessagesService {
     private readonly aiUsage: AiUsageService,
     private readonly usersRepo: UserRepository,
     private readonly compliance: ComplianceService,
+    private readonly media: MediaService,
     private readonly analytics: AnalyticsService,
     private readonly audit: AuditService,
     private readonly voice: VoiceService,
@@ -45,10 +47,32 @@ export class MessagesService {
     if (!account) throw new NotFoundException();
     const quota = await this.aiUsage.assertCanUseAi(userId, account.role);
 
+    let replyMeta:
+      | {
+          replyToMessageId: string;
+          replyToRole: string;
+          replyToSnippet: string;
+        }
+      | undefined;
+    if (dto.replyToMessageId) {
+      const target = await this.messages.findFirstByConversationAndId(
+        conversationId,
+        dto.replyToMessageId
+      );
+      if (target) {
+        replyMeta = {
+          replyToMessageId: target.id,
+          replyToRole: target.role,
+          replyToSnippet: target.content.slice(0, 240),
+        };
+      }
+    }
+
     const userMsg = await this.messages.create({
       conversationId,
       role: MessageRole.user,
       content: dto.content,
+      metadata: replyMeta,
     });
 
     const embedding = await this.ai.embed(dto.content);
@@ -87,13 +111,23 @@ export class MessagesService {
       ],
     });
 
+    const mediaItems = await this.media.tryGenerateFromPrompt({
+      text: dto.content,
+      personaSlug: conv.persona.slug,
+    });
+    const hasReadyMedia = mediaItems.some((m) => Boolean(m.url));
+    const assistantContent = hasReadyMedia
+      ? `${assistantText}\n\nMedia generated and attached below.`
+      : assistantText;
+
     const assistantMsg = await this.messages.create({
       conversationId,
       role: MessageRole.assistant,
-      content: assistantText,
+      content: assistantContent,
       metadata: {
         memoryCount: rows.length,
         structuredMemoryCount: promptContext.structuredMemory.length,
+        media: mediaItems,
       },
     });
 

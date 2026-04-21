@@ -23,6 +23,7 @@ import { RedisModule } from "./redis/redis.module";
 import { AdminModule } from "./admin/admin.module";
 import { RbacModule } from "./rbac/rbac.module";
 import { AiUsageModule } from "./ai-usage/ai-usage.module";
+import { MediaModule } from "./media/media.module";
 
 @Module({
   imports: [
@@ -32,6 +33,7 @@ import { AiUsageModule } from "./ai-usage/ai-usage.module";
     RedisModule,
     RbacModule,
     AiUsageModule,
+    MediaModule,
     AiClientModule,
     MemoryModule,
     AuthModule,

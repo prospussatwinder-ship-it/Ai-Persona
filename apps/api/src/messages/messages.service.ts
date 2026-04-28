@@ -14,6 +14,23 @@ import { UserRepository } from "../repositories/user.repository";
 import { VoiceService } from "../voice/voice.service";
 import type { PostMessageDto } from "./dto/post-message.dto";
 
+type MediaItem = {
+  kind?: "image" | "video";
+  status?: string;
+  url?: string;
+  prompt?: string;
+  message?: string;
+  source?: "upload" | "generated";
+  fileName?: string;
+  mimeType?: string;
+};
+
+function asksForMediaAnalysis(text: string) {
+  return /\b(what is this image|which image|identify|analy[sz]e|describe|what do you see|check this image)\b/i.test(
+    text
+  );
+}
+
 @Injectable()
 export class MessagesService {
   constructor(
@@ -68,14 +85,50 @@ export class MessagesService {
       }
     }
 
+    const uploadedMedia: MediaItem[] = (dto.uploadedMedia ?? []).map((item) => ({
+      kind: item.kind,
+      status: "ok",
+      url: item.url,
+      source: "upload",
+      fileName: item.fileName,
+      mimeType: item.mimeType,
+      message: "Uploaded by user.",
+    }));
+    const uploadContext = uploadedMedia.length
+      ? `\n\n[Uploaded media context]\n${uploadedMedia
+          .map((m, i) => `${i + 1}. ${m.kind} file${m.fileName ? ` (${m.fileName})` : ""} url: ${m.url}`)
+          .join("\n")}`
+      : "";
+    const uploadedImages = uploadedMedia.filter((m) => m.kind === "image" && !!m.url);
+    const needsImageAnalysis = uploadedImages.length > 0 && asksForMediaAnalysis(dto.content);
+    const visionNotes: string[] = [];
+    if (needsImageAnalysis) {
+      for (const item of uploadedImages.slice(0, 2)) {
+        const visionText = await this.ai.describeImage({
+          imageUrl: item.url as string,
+          prompt: "Describe this image in a factual way. Mention key objects, scene, and likely context.",
+        });
+        if (visionText?.trim()) {
+          visionNotes.push(visionText.trim());
+        }
+      }
+    }
+    const visionContext = visionNotes.length
+      ? `\n\n[Vision analysis]\n${visionNotes.map((v, i) => `${i + 1}. ${v}`).join("\n")}`
+      : "";
+    const userInputForAi = `${dto.content}${uploadContext}${visionContext}`;
+
     const userMsg = await this.messages.create({
       conversationId,
       role: MessageRole.user,
       content: dto.content,
-      metadata: replyMeta,
+      metadata: {
+        ...(replyMeta ?? {}),
+        ...(uploadedMedia.length ? { media: uploadedMedia } : {}),
+      },
     });
 
-    const embedding = await this.ai.embed(dto.content);
+    const embedding = await this.ai.embed(userInputForAi);
     const rows = await this.memory.search(userId, conv.personaId, embedding, 8);
     const promptContext = await this.personaContext.buildPromptContext({
       userId,
@@ -107,14 +160,17 @@ export class MessagesService {
           role: m.role as "user" | "assistant" | "system",
           content: m.content,
         })),
-        { role: "user", content: dto.content },
+        { role: "user", content: userInputForAi },
       ],
     });
 
-    const mediaItems = await this.media.tryGenerateFromPrompt({
-      text: dto.content,
-      personaSlug: conv.persona.slug,
-    });
+    const mediaItems =
+      uploadedMedia.length > 0 && needsImageAnalysis
+        ? []
+        : await this.media.tryGenerateFromPrompt({
+            text: userInputForAi,
+            personaSlug: conv.persona.slug,
+          });
     const hasReadyMedia = mediaItems.some((m) => Boolean(m.url));
     const assistantContent = hasReadyMedia
       ? `${assistantText}\n\nMedia generated and attached below.`
@@ -127,7 +183,10 @@ export class MessagesService {
       metadata: {
         memoryCount: rows.length,
         structuredMemoryCount: promptContext.structuredMemory.length,
-        media: mediaItems,
+        media: [
+          ...uploadedMedia.map((m) => ({ ...m, message: "Referenced uploaded media.", source: "upload" })),
+          ...mediaItems.map((m) => ({ ...m, source: "generated" as const })),
+        ],
       },
     });
 
@@ -135,7 +194,7 @@ export class MessagesService {
       userId,
       personaId: conv.personaId,
       conversationId,
-      userText: dto.content,
+      userText: userInputForAi,
       assistantText,
       history: history.map((h) => ({ role: h.role, content: h.content })),
       recentExchange,
@@ -161,7 +220,7 @@ export class MessagesService {
       action: "chat.message",
       entityType: "Conversation",
       entityId: conversationId,
-      metadata: { snippet: dto.content.slice(0, 120) },
+      metadata: { snippet: dto.content.slice(0, 120), uploadCount: uploadedMedia.length },
       ip,
     });
 

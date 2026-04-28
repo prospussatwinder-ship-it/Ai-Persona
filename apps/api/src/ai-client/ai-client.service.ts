@@ -19,4 +19,8 @@ export class AiClientService {
   async complete(input: CompleteChatInput): Promise<string> {
     return this.providers.getDefaultProvider().complete(input);
   }
+
+  async describeImage(input: { imageUrl: string; prompt?: string; model?: string }): Promise<string> {
+    return this.providers.getDefaultProvider().describeImage(input);
+  }
 }

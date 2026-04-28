@@ -16,6 +16,15 @@ uvicorn app.main:app --reload --port 8001
 
 Canonical routes (used by Nest `AiClientService`): `POST /memory/store`, `POST /memory/search`, `POST /chat/respond`, `POST /persona/test`, `POST /voice/respond`. Legacy aliases: `POST /internal/embed`, `POST /internal/complete`.
 
-Without `OPENAI_API_KEY`, embeddings are deterministic noise (dev only) and chat returns a simple fallback.
+Quality tuning (Ollama):
+
+- `OLLAMA_NUM_CTX` (context window)
+- `OLLAMA_NUM_PREDICT` (max output tokens)
+- `OLLAMA_TOP_P`, `OLLAMA_TOP_K`, `OLLAMA_REPEAT_PENALTY`
+- `AI_RESPONSE_STYLE` (`balanced`, `creative`, `precise`, `coach`)
+- `AI_ENABLE_PROMPT_BOOST` (`true`/`false`)
+- `OLLAMA_CHAT_FALLBACK_MODELS` (comma-separated model fallback order)
+
+If Ollama/local-compatible providers are unavailable, worker uses deterministic embed + local text fallback.
 
 `python-dotenv` loads `apps/ai/.env` on startup. Lint/format: `ruff check app`, `ruff format app`.

@@ -21,6 +21,9 @@ type Msg = {
       url?: string;
       prompt?: string;
       message?: string;
+      source?: "upload" | "generated";
+      fileName?: string;
+      mimeType?: string;
     }>;
   };
 };
@@ -113,7 +116,11 @@ export function ChatClient({ personaSlug, personaName }: { personaSlug: string; 
     role: string;
     snippet: string;
   } | null>(null);
+  const [pendingFiles, setPendingFiles] = useState<File[]>([]);
+  const [showAttachMenu, setShowAttachMenu] = useState(false);
+  const [uploadingMedia, setUploadingMedia] = useState(false);
   const bottomRef = useRef<HTMLDivElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const streamRunRef = useRef(0);
 
   const scrollToBottom = useCallback(() => {
@@ -248,25 +255,64 @@ export function ChatClient({ personaSlug, personaName }: { personaSlug: string; 
 
   async function send() {
     const text = input.trim();
-    if (!text || !activeConversationId || sending) return;
+    if ((!text && pendingFiles.length === 0) || !activeConversationId || sending) return;
     setInput("");
     setError(null);
     setSending(true);
+    const files = [...pendingFiles];
+    setPendingFiles([]);
+    setShowAttachMenu(false);
     const tempId = `temp-user-${Date.now()}`;
+    const tempMedia = files.map((f) => ({
+      kind: f.type.startsWith("video/") ? ("video" as const) : ("image" as const),
+      status: "ok",
+      url: URL.createObjectURL(f),
+      message: "Uploading...",
+      source: "upload" as const,
+      fileName: f.name,
+      mimeType: f.type,
+    }));
     const optimisticUser: Msg = {
       id: tempId,
       role: "user",
       content: text,
       createdAt: new Date().toISOString(),
+      metadata: tempMedia.length ? { media: tempMedia } : undefined,
     };
     setMessages((prev) => [...prev, optimisticUser]);
     try {
+      setUploadingMedia(files.length > 0);
+      const uploadedMedia = await Promise.all(
+        files.map(async (file) => {
+          const form = new FormData();
+          form.append("file", file);
+          return apiFetch<{
+            kind?: "image" | "video";
+            status?: string;
+            url?: string;
+            mimeType?: string;
+            fileName?: string;
+          }>(`/v1/media/upload/${personaSlug}`, { method: "POST", body: form });
+        })
+      );
+      setUploadingMedia(false);
       const res = await apiFetch<{
         userMessage: Msg;
         assistantMessage: Msg;
       }>(`/v1/conversations/${activeConversationId}/messages`, {
         method: "POST",
-        json: { content: text, replyToMessageId: replyTarget?.id },
+        json: {
+          content: text || "Uploaded media",
+          replyToMessageId: replyTarget?.id,
+          uploadedMedia: uploadedMedia
+            .filter((m) => m.status === "ok" && m.url && (m.kind === "image" || m.kind === "video"))
+            .map((m) => ({
+              kind: m.kind as "image" | "video",
+              url: m.url as string,
+              fileName: m.fileName,
+              mimeType: m.mimeType,
+            })),
+        },
       });
       const runId = Date.now();
       streamRunRef.current = runId;
@@ -314,8 +360,37 @@ export function ChatClient({ personaSlug, personaName }: { personaSlug: string; 
       setMessages((prev) => prev.filter((m) => m.id !== tempId));
       setError(e instanceof Error ? e.message : "Send failed");
     } finally {
+      setUploadingMedia(false);
       setSending(false);
     }
+  }
+
+  function renderMedia(items: NonNullable<Msg["metadata"]>["media"], messageId: string) {
+    if (!Array.isArray(items) || items.length === 0) return null;
+    return (
+      <div className="mt-3 space-y-2 border-t border-zinc-700/70 pt-3">
+        {items.map((item, idx) => (
+          <div key={`${messageId}-media-${idx}`} className="rounded-lg border border-zinc-700/80 bg-zinc-950/60 p-2">
+            {item.kind === "image" && item.url ? (
+              <img
+                src={item.url}
+                alt={item.prompt || item.fileName || "Media image"}
+                className="h-auto max-h-72 w-full rounded-md object-contain"
+              />
+            ) : null}
+            {item.kind === "video" && item.url ? (
+              <video src={item.url} controls className="h-auto max-h-72 w-full rounded-md" />
+            ) : null}
+            {(item.message || item.fileName || item.source) && (
+              <p className="mt-1 text-xs text-zinc-400">
+                {(item.kind || "media").toUpperCase()} {item.source ? `(${item.source})` : ""}:{" "}
+                {item.message || item.fileName || "Attached media"}
+              </p>
+            )}
+          </div>
+        ))}
+      </div>
+    );
   }
 
   if (loading) {
@@ -454,29 +529,7 @@ export function ChatClient({ personaSlug, personaName }: { personaSlug: string; 
                     <span className="ml-1 inline-block h-4 w-[2px] animate-pulse align-middle bg-violet-300" />
                   ) : null}
                 </div>
-                {m.role === "assistant" && Array.isArray(m.metadata?.media) && m.metadata!.media!.length > 0 ? (
-                  <div className="mt-3 space-y-2 border-t border-zinc-700/70 pt-3">
-                    {m.metadata!.media!.map((item, idx) => (
-                      <div key={`${m.id}-media-${idx}`} className="rounded-lg border border-zinc-700/80 bg-zinc-950/60 p-2">
-                        {item.kind === "image" && item.url ? (
-                          <img
-                            src={item.url}
-                            alt={item.prompt || "Generated image"}
-                            className="h-auto max-h-72 w-full rounded-md object-contain"
-                          />
-                        ) : null}
-                        {item.kind === "video" && item.url ? (
-                          <video src={item.url} controls className="h-auto max-h-72 w-full rounded-md" />
-                        ) : null}
-                        {item.message ? (
-                          <p className="mt-1 text-xs text-zinc-400">
-                            {item.kind?.toUpperCase() || "MEDIA"}: {item.message}
-                          </p>
-                        ) : null}
-                      </div>
-                    ))}
-                  </div>
-                ) : null}
+                {renderMedia(m.metadata?.media, m.id)}
                 <div className="mt-0">
                   <button
                     type="button"
@@ -525,10 +578,50 @@ export function ChatClient({ personaSlug, personaName }: { personaSlug: string; 
             </button>
           </div>
         ) : null}
-        <div className="flex gap-2 border-t border-zinc-800 pt-4">
+        <div className="relative flex gap-2 border-t border-zinc-800 pt-4">
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*,video/*"
+            multiple
+            className="hidden"
+            onChange={(e) => {
+              const selected = Array.from(e.target.files ?? []);
+              if (selected.length === 0) return;
+              setPendingFiles((prev) => [...prev, ...selected].slice(0, 6));
+              e.currentTarget.value = "";
+            }}
+          />
+          <button
+            type="button"
+            disabled={sending}
+            onClick={() => setShowAttachMenu((v) => !v)}
+            className="rounded-full border border-zinc-700 px-3 py-2 text-sm text-zinc-100 hover:bg-zinc-800 disabled:opacity-50"
+          >
+            +
+          </button>
+          {showAttachMenu ? (
+            <div className="absolute bottom-14 left-0 z-20 w-56 rounded-2xl border border-zinc-700 bg-zinc-900/95 p-2 shadow-xl">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowAttachMenu(false);
+                  fileInputRef.current?.click();
+                }}
+                className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm text-zinc-100 hover:bg-zinc-800"
+              >
+                <span className="text-base">📎</span>
+                <span>Add photos & files</span>
+              </button>
+              <div className="my-1 border-t border-zinc-700" />
+              <p className="px-3 py-1 text-xs text-zinc-500">
+                Image/video upload for persona analysis and media generation
+              </p>
+            </div>
+          ) : null}
           <input
             className="flex-1 rounded-xl border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white outline-none focus:border-violet-500"
-            placeholder="Message…"
+            placeholder="Message… (you can upload images/videos)"
             value={input}
             disabled={sending}
             onChange={(e) => setInput(e.target.value)}
@@ -541,13 +634,33 @@ export function ChatClient({ personaSlug, personaName }: { personaSlug: string; 
           />
           <button
             type="button"
-            disabled={sending || !input.trim()}
+            disabled={sending || (!input.trim() && pendingFiles.length === 0)}
             onClick={() => void send()}
             className="rounded-xl bg-violet-600 px-4 py-2 text-sm font-medium text-white hover:bg-violet-500 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {sending ? "Generating..." : "Send"}
           </button>
         </div>
+        {pendingFiles.length > 0 ? (
+          <div className="mt-2 flex flex-wrap gap-2">
+            {pendingFiles.map((f, idx) => (
+              <span
+                key={`${f.name}-${idx}`}
+                className="rounded-xl border border-zinc-700 bg-zinc-900/80 px-3 py-1 text-xs text-zinc-300"
+              >
+                {f.type.startsWith("video/") ? "video" : "image"}: {f.name}
+              </span>
+            ))}
+            <button
+              type="button"
+              onClick={() => setPendingFiles([])}
+              className="rounded-full border border-zinc-700 px-3 py-1 text-xs text-zinc-400 hover:text-zinc-200"
+            >
+              Clear
+            </button>
+          </div>
+        ) : null}
+        {uploadingMedia ? <p className="mt-2 text-xs text-zinc-400">Analyzing image…</p> : null}
         {/* <p className="mt-2 text-center text-[10px] text-zinc-600">
           API: {getApiBase()} · personalized memory is learned automatically
         </p> */}

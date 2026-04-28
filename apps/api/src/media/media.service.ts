@@ -1,5 +1,6 @@
 import { Injectable, Logger } from "@nestjs/common";
 import axios from "axios";
+import { extname } from "path";
 
 type MediaKind = "image" | "video";
 
@@ -8,6 +9,16 @@ export type GeneratedMedia = {
   status: "ok" | "stub" | "failed";
   prompt: string;
   url?: string;
+  message?: string;
+};
+
+export type UploadedMedia = {
+  kind: MediaKind;
+  status: "ok" | "failed";
+  url?: string;
+  mimeType?: string;
+  fileName?: string;
+  source?: "upload";
   message?: string;
 };
 
@@ -24,14 +35,90 @@ export class MediaService {
     return Number.isFinite(n) && n > 0 ? n : 120_000;
   }
 
+  private absolutize(url?: string) {
+    if (!url) return url;
+    if (/^https?:\/\//i.test(url) || /^data:/i.test(url)) return url;
+    if (url.startsWith("/")) return `${this.baseUrl()}${url}`;
+    return `${this.baseUrl()}/${url}`;
+  }
+
   private asksForImage(text: string) {
-    return /\b(image|images|photo|photos|picture|pictures|illustration|illustrations|graphic|graphics|poster|posters)\b/i.test(
-      text
-    );
+    const lower = text.toLowerCase();
+    const explicitlyAnalysisIntent =
+      /\b(what is this image|which image|identify|analy[sz]e|describe|what do you see|check this image|explain this image)\b/i.test(
+        lower
+      );
+    if (explicitlyAnalysisIntent) return false;
+    const explicitGeneratePattern =
+      /\b(generate|create|draw|design|produce|render|make)\b[\w\s]{0,40}\b(image|images|photo|photos|picture|pictures|illustration|graphic|poster)\b/i;
+    const explicitRequestPattern =
+      /\b(show|send|give|share|need|want)\b[\w\s]{0,40}\b(image|images|photo|photos|picture|pictures)\b/i;
+    return explicitGeneratePattern.test(lower) || explicitRequestPattern.test(lower);
   }
 
   private asksForVideo(text: string) {
-    return /\b(video|videos|reel|reels|clip|clips|shorts?)\b/i.test(text);
+    const lower = text.toLowerCase();
+    const explicitlyAnalysisIntent = /\b(analy[sz]e|describe|what is in this video|check this video)\b/i.test(lower);
+    if (explicitlyAnalysisIntent) return false;
+    const explicitGeneratePattern =
+      /\b(generate|create|make|produce|render|build)\b[\w\s]{0,40}\b(video|videos|reel|reels|clip|clips|short|shorts)\b/i;
+    const explicitRequestPattern =
+      /\b(show|send|give|share|need|want)\b[\w\s]{0,40}\b(video|videos|reel|reels|clip|clips|short|shorts)\b/i;
+    return explicitGeneratePattern.test(lower) || explicitRequestPattern.test(lower);
+  }
+
+  private inferKind(mimeType: string, fileName?: string): MediaKind {
+    if (mimeType.startsWith("image/")) return "image";
+    if (mimeType.startsWith("video/")) return "video";
+    const ext = extname(fileName ?? "").toLowerCase();
+    if ([".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".svg"].includes(ext)) return "image";
+    return "video";
+  }
+
+  async uploadMedia(input: {
+    buffer: Buffer;
+    mimeType: string;
+    fileName?: string;
+    personaSlug?: string;
+  }): Promise<UploadedMedia> {
+    try {
+      const res = await axios.post<{
+        status?: string;
+        kind?: MediaKind;
+        url?: string;
+        mime_type?: string;
+        file_name?: string;
+        message?: string;
+      }>(
+        `${this.baseUrl()}/v1/upload`,
+        {
+          data_base64: input.buffer.toString("base64"),
+          mime_type: input.mimeType,
+          file_name: input.fileName,
+          persona_slug: input.personaSlug,
+        },
+        { timeout: this.timeoutMs() }
+      );
+      return {
+        kind: res.data.kind ?? this.inferKind(input.mimeType, input.fileName),
+        status: res.data.url ? "ok" : "failed",
+        url: this.absolutize(res.data.url),
+        mimeType: res.data.mime_type ?? input.mimeType,
+        fileName: res.data.file_name ?? input.fileName,
+        source: "upload",
+        message: res.data.message,
+      };
+    } catch (e) {
+      this.log.warn(`Media upload unavailable (${String(e)})`);
+      return {
+        kind: this.inferKind(input.mimeType, input.fileName),
+        status: "failed",
+        mimeType: input.mimeType,
+        fileName: input.fileName,
+        source: "upload",
+        message: "Media upload is temporarily unavailable.",
+      };
+    }
   }
 
   async tryGenerateFromPrompt(input: { text: string; personaSlug: string }) {
@@ -68,7 +155,7 @@ export class MediaService {
         kind: "image",
         status: res.data.image_url ? "ok" : "stub",
         prompt: res.data.prompt ?? prompt,
-        url: res.data.image_url,
+        url: this.absolutize(res.data.image_url),
         message: res.data.message,
       };
     } catch (e) {
@@ -98,7 +185,7 @@ export class MediaService {
         kind: "video",
         status: res.data.video_url ? "ok" : "stub",
         prompt: res.data.prompt ?? prompt,
-        url: res.data.video_url,
+        url: this.absolutize(res.data.video_url),
         message: res.data.message,
       };
     } catch (e) {

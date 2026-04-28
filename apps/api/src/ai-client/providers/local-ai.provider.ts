@@ -60,6 +60,28 @@ export class LocalAiProvider implements AiProvider {
     }
   }
 
+  async describeImage(input: { imageUrl: string; prompt?: string; model?: string }): Promise<string> {
+    try {
+      const res = await axios.post<{ text: string }>(
+        `${this.baseUrl()}/vision/describe`,
+        {
+          image_url: input.imageUrl,
+          prompt: input.prompt,
+          model: input.model,
+        },
+        {
+          headers: this.headers(),
+          timeout: this.chatTimeoutMs(),
+        }
+      );
+      const text = (res.data.text ?? "").trim();
+      if (text) return text;
+    } catch (e) {
+      this.log.warn(`Local AI vision unavailable (${String(e)})`);
+    }
+    return "I received the image, but visual analysis is not available right now.";
+  }
+
   private localFallbackReply(system: string, userText: string): string {
     let scope = "this persona";
     for (const rawLine of system.split("\n")) {

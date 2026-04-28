@@ -1,5 +1,6 @@
 """Phase 1 AI worker — local model provider with safe fallback."""
 
+import base64
 import hashlib
 import math
 import os
@@ -22,7 +23,20 @@ AI_EMBED_PROVIDER = os.getenv("AI_EMBED_PROVIDER", AI_PROVIDER).strip().lower()
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434").rstrip("/")
 OLLAMA_CHAT_MODEL = os.getenv("OLLAMA_CHAT_MODEL", "llama3.1:8b-instruct-q4_K_M")
 OLLAMA_EMBED_MODEL = os.getenv("OLLAMA_EMBED_MODEL", "nomic-embed-text")
+OLLAMA_VISION_MODEL = os.getenv("OLLAMA_VISION_MODEL", "llama3.2-vision:11b-instruct-q4_K_M")
 AI_TIMEOUT_SECONDS = float(os.getenv("AI_TIMEOUT_SECONDS", "90"))
+OLLAMA_NUM_CTX = int(os.getenv("OLLAMA_NUM_CTX", "8192"))
+OLLAMA_NUM_PREDICT = int(os.getenv("OLLAMA_NUM_PREDICT", "768"))
+OLLAMA_TOP_P = float(os.getenv("OLLAMA_TOP_P", "0.9"))
+OLLAMA_TOP_K = int(os.getenv("OLLAMA_TOP_K", "40"))
+OLLAMA_REPEAT_PENALTY = float(os.getenv("OLLAMA_REPEAT_PENALTY", "1.12"))
+OLLAMA_TEMPERATURE_MIN = float(os.getenv("OLLAMA_TEMPERATURE_MIN", "0.2"))
+OLLAMA_TEMPERATURE_MAX = float(os.getenv("OLLAMA_TEMPERATURE_MAX", "1.5"))
+OLLAMA_CHAT_FALLBACK_MODELS = [
+    item.strip() for item in os.getenv("OLLAMA_CHAT_FALLBACK_MODELS", "").split(",") if item.strip()
+]
+AI_RESPONSE_STYLE = os.getenv("AI_RESPONSE_STYLE", "balanced").strip().lower()
+AI_ENABLE_PROMPT_BOOST = os.getenv("AI_ENABLE_PROMPT_BOOST", "true").strip().lower() not in {"0", "false", "no"}
 
 # Self-hosted OpenAI-compatible HTTP API (LM Studio, vLLM, LiteLLM proxy, etc.) — not vendor OpenAI.
 LOCAL_LLM_COMPAT_BASE_URL = os.getenv("LOCAL_LLM_COMPAT_BASE_URL", "").strip().rstrip("/")
@@ -63,6 +77,16 @@ class VoiceRespondRequest(BaseModel):
     voice_config: dict | None = None
 
 
+class VisionDescribeRequest(BaseModel):
+    image_url: str = Field(..., min_length=1, max_length=4000)
+    prompt: str = Field(
+        default="Describe this image in detail with key objects, scene and likely context.",
+        min_length=1,
+        max_length=1200,
+    )
+    model: str | None = None
+
+
 def deterministic_embedding(text: str, dim: int = 1536) -> list[float]:
     """Emergency deterministic embedding fallback."""
     h = hashlib.sha256(text.encode("utf-8")).digest()
@@ -78,6 +102,63 @@ def _trim_messages(messages: list[dict], limit: int = 24) -> list[dict]:
     if len(messages) <= limit:
         return messages
     return messages[-limit:]
+
+
+def _clamp(value: float, low: float, high: float) -> float:
+    return max(low, min(value, high))
+
+
+def _response_style_instruction() -> str:
+    style = AI_RESPONSE_STYLE
+    if style == "creative":
+        return (
+            "Response style: expressive and vivid. Use concrete detail, natural pacing, and avoid robotic phrasing. "
+            "Keep advice actionable and clear."
+        )
+    if style == "precise":
+        return (
+            "Response style: concise and precise. Prioritize factual accuracy, short paragraphs, and direct steps."
+        )
+    if style == "coach":
+        return (
+            "Response style: supportive coach. Be motivating, structured, and practical with clear next actions."
+        )
+    return (
+        "Response style: natural and human-like. Keep language warm, specific, and realistic while staying concise. "
+        "Avoid generic filler and repetition."
+    )
+
+
+def _build_system_prompt(system: str) -> str:
+    clean = system.strip()
+    if not AI_ENABLE_PROMPT_BOOST:
+        return clean
+    # Additive quality boost only; does not remove persona/system constraints.
+    return (
+        f"{clean}\n\n"
+        "Quality rules:\n"
+        "- Follow persona and safety constraints strictly.\n"
+        "- Keep continuity with previous messages.\n"
+        "- Prefer specific examples over generic statements.\n"
+        f"- {_response_style_instruction()}\n"
+    )
+
+
+def _candidate_ollama_models(requested_model: str | None) -> list[str]:
+    requested = (requested_model or "").strip()
+    if requested.lower() in {"", "local-default", "default", "auto"}:
+        requested = ""
+    preferred = (requested or OLLAMA_CHAT_MODEL or CHAT_MODEL).strip() or OLLAMA_CHAT_MODEL
+    candidates = [preferred, *OLLAMA_CHAT_FALLBACK_MODELS]
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for item in candidates:
+        key = item.strip().lower()
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        deduped.append(item.strip())
+    return deduped
 
 
 async def ollama_embed(text: str) -> list[float]:
@@ -97,7 +178,7 @@ async def openai_compat_chat(system: str, messages: list[dict], model: str | Non
         raise RuntimeError("LOCAL_LLM_COMPAT_BASE_URL not configured")
     chat_model = (model or LOCAL_LLM_COMPAT_CHAT_MODEL or OLLAMA_CHAT_MODEL).strip()
     normalized_msgs: list[dict[str, str]] = [
-        {"role": "system", "content": system},
+        {"role": "system", "content": _build_system_prompt(system)},
         *[
             {"role": str(item.get("role", "user")), "content": str(item.get("content", "")).strip()}
             for item in _trim_messages(messages, 24)
@@ -110,7 +191,9 @@ async def openai_compat_chat(system: str, messages: list[dict], model: str | Non
     payload = {
         "model": chat_model,
         "messages": normalized_msgs,
-        "temperature": float(max(0.0, min(temperature, 1.5))),
+        "temperature": float(_clamp(temperature, OLLAMA_TEMPERATURE_MIN, OLLAMA_TEMPERATURE_MAX)),
+        "top_p": float(_clamp(OLLAMA_TOP_P, 0.1, 1.0)),
+        "max_tokens": int(max(64, OLLAMA_NUM_PREDICT)),
     }
     url = f"{LOCAL_LLM_COMPAT_BASE_URL}/chat/completions"
     async with httpx.AsyncClient(timeout=AI_TIMEOUT_SECONDS) as client:
@@ -150,24 +233,73 @@ async def openai_compat_embed(text: str) -> list[float]:
 
 
 async def ollama_chat(system: str, messages: list[dict], model: str | None, temperature: float) -> str:
-    requested_model = (model or "").strip()
-    if requested_model.lower() in {"", "local-default", "default", "auto"}:
-        requested_model = ""
-    chat_model = (requested_model or OLLAMA_CHAT_MODEL or CHAT_MODEL).strip() or OLLAMA_CHAT_MODEL
     normalized_msgs: list[dict[str, str]] = [
-        {"role": "system", "content": system},
+        {"role": "system", "content": _build_system_prompt(system)},
         *[
             {"role": str(item.get("role", "user")), "content": str(item.get("content", "")).strip()}
             for item in _trim_messages(messages, 24)
             if str(item.get("content", "")).strip()
         ],
     ]
+    last_error: Exception | None = None
+    for chat_model in _candidate_ollama_models(model):
+        payload = {
+            "model": chat_model,
+            "stream": False,
+            "messages": normalized_msgs,
+            "options": {
+                "temperature": float(_clamp(temperature, OLLAMA_TEMPERATURE_MIN, OLLAMA_TEMPERATURE_MAX)),
+                "top_p": float(_clamp(OLLAMA_TOP_P, 0.1, 1.0)),
+                "top_k": int(max(1, OLLAMA_TOP_K)),
+                "repeat_penalty": float(max(1.0, OLLAMA_REPEAT_PENALTY)),
+                "num_ctx": int(max(1024, OLLAMA_NUM_CTX)),
+                "num_predict": int(max(64, OLLAMA_NUM_PREDICT)),
+            },
+        }
+        try:
+            async with httpx.AsyncClient(timeout=AI_TIMEOUT_SECONDS) as client:
+                res = await client.post(f"{OLLAMA_BASE_URL}/api/chat", json=payload)
+                res.raise_for_status()
+                data: dict[str, Any] = res.json()
+            msg = data.get("message", {})
+            content = str(msg.get("content", "")).strip()
+            if content:
+                return content
+            raise RuntimeError("ollama chat response missing content")
+        except Exception as exc:
+            last_error = exc
+            continue
+    if last_error:
+        raise RuntimeError(f"ollama chat failed across models: {last_error}")
+    raise RuntimeError("ollama chat failed: no candidate models")
+
+
+async def _load_image_as_base64(image_url: str) -> str:
+    if image_url.startswith("data:image/"):
+        parts = image_url.split(",", 1)
+        if len(parts) == 2 and parts[1].strip():
+            return parts[1].strip()
+        raise RuntimeError("invalid data image url")
+    async with httpx.AsyncClient(timeout=AI_TIMEOUT_SECONDS) as client:
+        res = await client.get(image_url)
+        res.raise_for_status()
+        blob = res.content
+    if not blob:
+        raise RuntimeError("image download returned empty payload")
+    return base64.b64encode(blob).decode("ascii")
+
+
+async def ollama_describe_image(image_url: str, prompt: str, model: str | None) -> str:
+    vision_model = (model or OLLAMA_VISION_MODEL or OLLAMA_CHAT_MODEL).strip()
+    img_b64 = await _load_image_as_base64(image_url)
     payload = {
-        "model": chat_model,
+        "model": vision_model,
         "stream": False,
-        "messages": normalized_msgs,
+        "messages": [{"role": "user", "content": prompt, "images": [img_b64]}],
         "options": {
-            "temperature": float(max(0.0, min(temperature, 1.5))),
+            "temperature": 0.2,
+            "num_ctx": int(max(1024, OLLAMA_NUM_CTX)),
+            "num_predict": int(max(96, min(OLLAMA_NUM_PREDICT, 512))),
         },
     }
     async with httpx.AsyncClient(timeout=AI_TIMEOUT_SECONDS) as client:
@@ -177,7 +309,7 @@ async def ollama_chat(system: str, messages: list[dict], model: str | None, temp
     msg = data.get("message", {})
     content = str(msg.get("content", "")).strip()
     if not content:
-        raise RuntimeError("ollama chat response missing content")
+        raise RuntimeError("vision response missing content")
     return content
 
 
@@ -356,7 +488,15 @@ def health():
         "provider": AI_PROVIDER,
         "embedProvider": AI_EMBED_PROVIDER,
         "chatModel": OLLAMA_CHAT_MODEL,
+        "fallbackChatModels": OLLAMA_CHAT_FALLBACK_MODELS,
         "embedModel": OLLAMA_EMBED_MODEL,
+        "chatNumCtx": OLLAMA_NUM_CTX,
+        "chatNumPredict": OLLAMA_NUM_PREDICT,
+        "chatTopP": OLLAMA_TOP_P,
+        "chatTopK": OLLAMA_TOP_K,
+        "chatRepeatPenalty": OLLAMA_REPEAT_PENALTY,
+        "responseStyle": AI_RESPONSE_STYLE,
+        "promptBoostEnabled": AI_ENABLE_PROMPT_BOOST,
         "localLlmCompatConfigured": bool(LOCAL_LLM_COMPAT_BASE_URL),
     }
 
@@ -416,3 +556,13 @@ async def internal_embed(body: EmbedRequest, x_internal_key: str | None = Header
 @app.post("/internal/complete")
 async def internal_complete(body: CompleteRequest, x_internal_key: str | None = Header(default=None)):
     return await chat_respond(body, x_internal_key)
+
+
+@app.post("/vision/describe")
+async def vision_describe(body: VisionDescribeRequest, x_internal_key: str | None = Header(default=None)):
+    _check_key(x_internal_key)
+    try:
+        text = await ollama_describe_image(body.image_url, body.prompt, body.model)
+        return {"text": text}
+    except Exception:
+        return {"text": "I received the image, but visual analysis is not available right now."}

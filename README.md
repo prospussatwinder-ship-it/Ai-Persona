@@ -3,6 +3,7 @@
 Stack: **Next.js** (`apps/web`), **NestJS** (`apps/api`), **FastAPI** (`apps/ai`), **PostgreSQL + pgvector**, **Redis**, **Prisma** (`packages/db`).
 
 **Full local setup (Docker, Postgres, Redis, migrations, env files, ports):** see **[docs/GETTING_STARTED.md](docs/GETTING_STARTED.md)**.
+**Production/server/database requirements:** see **[docs/PRODUCTION_REQUIREMENTS.md](docs/PRODUCTION_REQUIREMENTS.md)**.
 
 ## Monorepo layout
 
@@ -141,7 +142,7 @@ npm run dev:web
 
 # 3) AI worker
 cd apps/ai
-.\.venv\Scripts\python.exe -m uvicorn app.main:app --host 0.0.0.0 --port 8002
+  .\.venv\Scripts\python.exe -m uvicorn app.main:app --host 0.0.0.0 --port 8002
 
 # 4) Media worker
 cd services/media-worker
@@ -158,6 +159,30 @@ $env:PYTHONPATH='d:\xampp-8.2-new\htdocs\Ai-Persona\services\media-worker'
 - Delete chat conversation
 - Media request detection from prompt text (`image/images/video/videos`)
 - Media preview rendering in chat (`metadata.media`)
+
+### Ollama + media clarification
+
+- Ollama is used for persona chat, memory-related text flows, and image understanding/description.
+- Ollama is **not** the primary production path for realistic image generation in this project.
+- For real generated images/videos, use `services/media-worker` with a real media provider (OpenAI Images, ComfyUI/SDXL, or another dedicated generator).
+- If no real media provider is configured, media worker falls back to local placeholder outputs so end-to-end media flow still works.
+
+### Real media + voice setup (current implementation)
+
+- Real image generation is enabled through `services/media-worker` when `OPENAI_API_KEY` is set for that worker process.
+- Voiceover can be enabled in API via `VOICE_PROVIDER=openai` (otherwise it uses mock voice URLs).
+- Required API env keys for voice:
+  - `VOICE_PROVIDER=openai`
+  - `OPENAI_API_KEY=...`
+  - `OPENAI_TTS_MODEL=gpt-4o-mini-tts`
+  - `OPENAI_TTS_VOICE=alloy` (or any supported voice)
+- Video generation is still placeholder by default; connect a dedicated video provider in media-worker for production-grade output.
+
+### What users should expect
+
+- If a user asks to **analyze/describe an uploaded image**, the system uses the vision analysis path.
+- If a user explicitly asks to **generate/create an image or video**, the media worker generation path is used.
+- If generation provider is missing/unavailable, chat still responds normally and media may show a placeholder/fallback message.
 
 ### Media behavior right now
 
